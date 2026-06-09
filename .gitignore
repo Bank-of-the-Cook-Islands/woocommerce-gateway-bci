@@ -1,0 +1,12 @@
+*.zip
+.DS_Store
+Thumbs.db
+node_modules/
+vendor/
+test-runs/
+playwright-report/
+playwright/.cache/
+scripts/run-bci-matrix.mjs
+scripts/*playwright*.mjs
+.idea/
+.vscode/

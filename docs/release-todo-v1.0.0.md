@@ -14,7 +14,7 @@
 - [ ] Finalise merchant setup guide:
   - Confirm screenshots are current.
   - Confirm wording is suitable for non-technical merchants.
-  - Add note about disabling sandbox EUR override before live release.
+  - Explain that sandbox defaults to EUR and the selected currency must match the BPC Dev Merchant Portal.
 
 - [ ] Build final release ZIP:
   - Package only `woocommerce-gateway-bci`.
@@ -34,7 +34,7 @@
   - Confirm production callback URL in BCI merchant portal.
   - Confirm callback events enabled: Deposited, Approved, Reversed, Refunded, Declined by timeout.
   - Confirm Test mode is disabled only when ready for real payments.
-  - Confirm sandbox EUR override is disabled for live release.
+  - Confirm Sandbox Currency matches the BPC Dev Merchant Portal.
 
 ## Already Done
 
@@ -45,7 +45,7 @@
 - [x] No payment timeout, customer closes page.
 - [x] Payment declined, customer clicks return.
 - [x] Payment declined, customer closes page.
-- [x] Sandbox EUR override verified with BPC request currency `978`.
+- [x] Default sandbox EUR currency verified with BPC request currency `978`.
 - [x] Release test report written.
 - [x] Requirements checklist written from Word brief.
 

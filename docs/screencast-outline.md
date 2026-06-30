@@ -8,7 +8,8 @@ Target length: 3 to 5 minutes.
 2. Open WooCommerce > Settings > Payments > TakuEcom - BCI Payments.
 3. Show the guided setup panel.
 4. Enter sandbox API login and password.
-5. Keep Test mode enabled and save settings.
+5. Keep Use sandbox credentials and endpoint enabled, explain that sandbox defaults to EUR, and save settings.
+6. Show the Sandbox Currency dropdown and explain that it must match the BPC Dev Merchant Portal.
 6. Copy the callback URL.
 7. Show the merchant portal callback settings to configure Static, POST, Symmetric signing, and required events.
 8. Paste the sandbox callback token back into WooCommerce.
@@ -22,7 +23,8 @@ Target length: 3 to 5 minutes.
 
 ## Narration Points
 
-- Test mode keeps all checkout payments on the sandbox endpoint.
+- Use sandbox credentials and endpoint keeps all checkout payments on the sandbox endpoint and defaults them to EUR.
+- Sandbox Currency can be changed only when the same currency is selected in the BPC Dev Merchant Portal.
 - Processing is a paid WooCommerce status for orders awaiting fulfilment.
 - The callback and background polling protect against customers closing the browser after payment.
 - Subscriptions require BCI stored credential and recurrent payment permissions.

@@ -6,7 +6,7 @@ Plugin version: `1.0.0`
 
 Test date: 2026-05-28
 
-Result: Passed release test matrix for BPC sandbox checkout, browser-return recovery, closed-browser recovery, timeout handling, declined payment handling, and the sandbox EUR currency override.
+Result: Passed release test matrix for BPC sandbox checkout, browser-return recovery, closed-browser recovery, timeout handling, declined payment handling, and the default sandbox EUR currency.
 
 ## Test Environment
 
@@ -19,7 +19,7 @@ Result: Passed release test matrix for BPC sandbox checkout, browser-return reco
 | Gateway mode | Sandbox / Test mode |
 | BPC endpoint | `https://dev.bpcbt.com/payment/rest` |
 | Store currency | NZD |
-| BPC request currency | EUR / `978` via sandbox currency override |
+| BPC request currency | EUR / `978` via the sandbox default |
 | Test product | Test Product, 10.00 |
 | Test card | BPC sandbox Mastercard ending `5599`, expiry `12/34` |
 | Public test URL | Cloudflare quick tunnel |
@@ -32,12 +32,12 @@ Result: Passed release test matrix for BPC sandbox checkout, browser-return reco
 | Test mode | Yes |
 | Sandbox API credentials | Present |
 | Sandbox callback token | Present |
-| Sandbox currency override | Enabled |
+| Sandbox currency | EUR (default) |
 | Payment method at checkout | Card (BCI TakuEcom) |
 | Callback route | `/wp-json/bci-woo/v1/callback` |
 | Browser return route | `?wc-api=bci_takuecom_return` |
 
-The WooCommerce order currency remains NZD, while BPC registration requests use EUR `978` in sandbox. This matches the BPC testing requirement and keeps live behavior unchanged.
+The WooCommerce order currency remains NZD, while BPC registration requests use the sandbox's default EUR `978`. The selected plugin currency must match the BPC Dev Merchant Portal and live behavior remains unchanged.
 
 ## Test Matrix
 
@@ -86,4 +86,4 @@ The v1.0.0 payment flow is ready for release candidate packaging, subject to fin
 - Live callback token configured in WooCommerce.
 - BCI merchant portal callback URL points to the production site.
 - Callback events include Deposited, Approved, Reversed, Refunded, and Declined by timeout.
-- Sandbox currency override is disabled before live release unless BCI explicitly asks otherwise.
+- Sandbox Currency is confirmed against the BPC Dev Merchant Portal before testing; live mode always uses NZD.

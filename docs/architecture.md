@@ -13,7 +13,7 @@ Included in v1.0.0:
 - WooCommerce Checkout Block registration.
 - Live and sandbox API credentials.
 - Test mode, enabled by default.
-- Sandbox-only EUR debug override for BPC testing.
+- EUR-by-default sandbox currency selection aligned with the BPC development merchant configuration.
 - BCI merchant setup guidance in the WooCommerce gateway settings.
 - Connection test buttons for live and sandbox credentials.
 - Signed REST callback endpoint.
@@ -171,8 +171,8 @@ Stored credential metadata is only relevant when experimental subscription renew
 The gateway settings are grouped into:
 
 - Gateway: enable gateway, checkout title, checkout description, paid order status behaviour.
-- Test mode: sandbox/live environment switch.
-- Sandbox currency override: forces EUR (`978`) for sandbox payment requests when Test mode is enabled.
+- Test mode: sandbox/live environment switch; sandbox requests default to EUR (`978`).
+- Sandbox currency: selects EUR (`978`, default) or NZD (`554`) to match the BPC Dev Merchant Portal.
 - Live configuration: live API login, password, callback token, and connection test.
 - Sandbox configuration: sandbox API login, password, callback token, and connection test.
 - Callback URL: display-only REST callback URL for the BCI merchant portal.
@@ -202,15 +202,15 @@ The one-off payment release path uses `register_payment()` and `get_order_status
 
 ## Currency Handling
 
-The BCI-branded v1.0.0 gateway sends NZD (`554`) for normal checkout and renewal payment requests. This matches the brief requirement that the plugin currency is set to NZD.
+The BCI-branded gateway sends NZD (`554`) for live checkout and renewal payment requests. This matches the brief requirement that live plugin currency is set to NZD.
 
 ```text
 NZD = 554
 ```
 
-If the WooCommerce store or order currency is not NZD, the gateway still sends NZD and logs that the order currency was ignored for the BCI request.
+If the WooCommerce store or order currency is not NZD, live mode still sends NZD and logs that the order currency was ignored for the BCI request.
 
-When Test mode is enabled and `sandbox_force_eur_currency` is set to `yes`, payment requests use EUR (`978`) regardless of the WooCommerce order currency. This is a BPC sandbox testing aid and is not intended for live payments.
+When Test mode is enabled, payment requests use the `sandbox_currency` setting regardless of the WooCommerce order currency. It defaults to EUR (`978`) because the BPC development environment defaults new merchants to EUR. Operators may select NZD (`554`) only after configuring the development merchant to use the same currency in the BPC Dev Merchant Portal. The legacy `sandbox_force_eur_currency=yes` setting is still interpreted as EUR when `sandbox_currency` has not yet been saved.
 
 ## One-Off Payment Flow
 
@@ -403,7 +403,7 @@ Security boundaries in v1.0.0:
 
 ## Release State
 
-The one-off payment matrix has been validated against BPC sandbox using the EUR override:
+The one-off payment matrix has been validated against BPC sandbox using its default EUR currency:
 
 - Payment successful, customer clicks Return.
 - Payment successful, customer closes page.

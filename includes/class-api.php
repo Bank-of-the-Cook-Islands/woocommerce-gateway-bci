@@ -61,7 +61,23 @@ final class Api
 
     public static function payment_currency_code(?string $currency): string
     {
-        if (self::current_environment() === 'sandbox' && self::get_setting('sandbox_force_eur_currency', 'no') === 'yes') {
+        if (self::current_environment() === 'sandbox') {
+            $sandbox_currency = strtoupper((string) self::get_setting('sandbox_currency', ''));
+
+            if ($sandbox_currency === '' && self::get_setting('sandbox_force_eur_currency', 'no') === 'yes') {
+                $sandbox_currency = 'EUR';
+            }
+
+            if (isset(self::CURRENCY_MAP[$sandbox_currency])) {
+                return $sandbox_currency;
+            }
+
+            if ($sandbox_currency !== '') {
+                Log::notice('Unsupported BCI sandbox currency setting; defaulting to EUR.', [
+                    'currency' => $sandbox_currency,
+                ]);
+            }
+
             return 'EUR';
         }
 

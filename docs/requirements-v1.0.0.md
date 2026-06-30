@@ -22,9 +22,9 @@ WooCommerce Subscriptions / recurring payment code paths are present, but they a
 | R1.1 | Provide a BCI-branded WooCommerce payment gateway for TakuEcom. | Complete | Gateway ID `bci_takuecom`; checkout title `Card (BCI TakuEcom)`; BCI logo asset included. |
 | R1.2 | Use BCI production payment endpoint. | Complete | Live endpoint configured as `https://securepayments.bci.co.ck/payment/rest`. |
 | R1.3 | Provide BPC sandbox/test payment endpoint. | Complete | Sandbox endpoint configured as `https://dev.bpcbt.com/payment/rest`. |
-| R1.4 | Currency is set to NZD. | Complete | Normal live/sandbox payment requests send NZD `554`; sandbox can optionally force EUR `978` for BPC testing only. |
+| R1.4 | Currency is set to NZD. | Complete | Live payment requests send NZD `554`; sandbox defaults to EUR `978` to match the BPC development environment and can be set to NZD when the Dev Merchant Portal matches. |
 | R1.5 | Keep simple test/live mode toggle. | Complete | Gateway setting `Test mode` selects sandbox vs live credentials/endpoints. |
-| R1.6 | Provide BPC sandbox EUR override for BPC testing. | Complete | Gateway setting `Sandbox currency override`; automated tests verified `currency=978`. |
+| R1.6 | Support the BPC sandbox currency. | Complete | Test mode defaults to EUR `978`; the `Sandbox currency` dropdown can select NZD `554` when configured identically in the BPC Dev Merchant Portal. |
 | R2.1 | Replace stock settings with guided setup. | Complete | Guided setup panel in gateway settings; merchant setup guide included. |
 | R2.2 | Provide clear validation/errors during setup. | Complete | Connection tests, readiness checks, WooCommerce notices, and gateway log messages are present. |
 | R2.3 | Link to support/setup materials. | Complete | Merchant setup guide and setup guide URL support are included. |
@@ -94,7 +94,7 @@ Before advertising subscriptions as production-ready, run these tests:
 
 - [ ] Confirm final production callback URL and token with BCI merchant portal.
 - [ ] Confirm live API credentials are entered only on the production site.
-- [ ] Disable sandbox-only EUR override before live release unless BCI explicitly asks to keep it for testing.
+- [ ] Confirm Sandbox Currency matches the BPC Dev Merchant Portal before sandbox testing.
 - [ ] Build release ZIP from `woocommerce-gateway-bci` only.
 - [ ] Exclude `node_modules`, `test-runs`, Playwright scripts, and `my-plugin` test helper from release ZIP.
 - [ ] Fresh install the ZIP on a clean WordPress/WooCommerce site.

@@ -81,14 +81,17 @@ final class Gateway extends \WC_Payment_Gateway
                 'type' => 'checkbox',
                 'label' => __('Use sandbox credentials and endpoint', Config::TEXT_DOMAIN),
                 'default' => 'yes',
-                'description' => __('Disable this only when BCI has issued live credentials and you are ready to process real payments.', Config::TEXT_DOMAIN),
+                'description' => __('Uses the BPC development environment and its EUR default. Disable only when BCI has issued live credentials and you are ready to process real payments.', Config::TEXT_DOMAIN),
             ],
-            'sandbox_force_eur_currency' => [
-                'title' => __('Sandbox currency override', Config::TEXT_DOMAIN),
-                'type' => 'checkbox',
-                'label' => __('Force EUR for sandbox payments', Config::TEXT_DOMAIN),
-                'default' => 'no',
-                'description' => __('Debug setting for BPC testing only. When Test mode is enabled, checkout and renewal requests are sent to BPC as EUR instead of the WooCommerce order currency.', Config::TEXT_DOMAIN),
+            'sandbox_currency' => [
+                'title' => __('Sandbox currency', Config::TEXT_DOMAIN),
+                'type' => 'select',
+                'default' => 'EUR',
+                'description' => __('The BPC development environment defaults to EUR. Change this only after selecting the matching currency in the BPC Dev Merchant Portal.', Config::TEXT_DOMAIN),
+                'options' => [
+                    'EUR' => __('EUR - Euro (default)', Config::TEXT_DOMAIN),
+                    'NZD' => __('NZD - New Zealand dollar', Config::TEXT_DOMAIN),
+                ],
             ],
             'live_section' => [
                 'title' => __('Live Configuration', Config::TEXT_DOMAIN),
@@ -481,14 +484,18 @@ final class Gateway extends \WC_Payment_Gateway
 
     private function billing_payer_data(\WC_Order $order): array
     {
+        $country = strtoupper((string) $order->get_billing_country());
         $map = [
             'billingCity' => $order->get_billing_city(),
-            'billingCountry' => $order->get_billing_country(),
+            'billingCountry' => $country,
             'billingAddressLine1' => $order->get_billing_address_1(),
             'billingAddressLine2' => $order->get_billing_address_2(),
             'billingPostalCode' => $order->get_billing_postcode(),
-            'billingState' => $order->get_billing_state(),
         ];
+
+        if ($country !== 'CK') {
+            $map['billingState'] = $order->get_billing_state();
+        }
 
         return array_filter(array_map(static function ($value): string {
             return substr(wp_strip_all_tags((string) $value), 0, 50);

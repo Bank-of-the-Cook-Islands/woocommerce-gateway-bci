@@ -22,15 +22,15 @@ This plugin adds a BCI TakuEcom redirect checkout for accepting card payments. C
 | Live recurrent payments | `https://securepayments.bci.co.ck/payment/recurrentPayment.do` |
 | Sandbox recurrent payments | `https://dev.bpcbt.com/payment/recurrentPayment.do` |
 
-Payment requests are sent as NZD (`554`) for this BCI release. For BPC sandbox testing only, enable **Sandbox currency override** to send checkout and renewal payment requests as EUR (`978`) while Test mode is enabled.
+Live payment requests are sent as NZD (`554`). The BPC development environment defaults to EUR (`978`), so enabling **Use sandbox credentials and endpoint** automatically sends sandbox checkout and renewal requests as EUR. If the development merchant is configured for NZD instead, select NZD under **Sandbox currency** and make the matching change in the BPC Dev Merchant Portal.
 
 ## Setup
 
 1. Upload and activate `woocommerce-gateway-bci`.
 2. Go to WooCommerce > Settings > Payments.
 3. Open TakuEcom - BCI Payments.
-4. Enable Test mode while configuring sandbox credentials.
-5. Enable Sandbox currency override if the BPC sandbox account only accepts EUR.
+4. Enable Use sandbox credentials and endpoint while configuring sandbox credentials. Sandbox requests default to EUR.
+5. Keep Sandbox currency set to EUR unless the development merchant currency has been changed in the BPC Dev Merchant Portal.
 6. Enter the sandbox API login, API password, and callback token.
 7. Copy the callback URL into the BCI merchant portal.
 8. Use Static callbacks, POST, Symmetric signing, and enable Deposited, Approved, Reversed, Refunded, and Declined by timeout events.
@@ -83,3 +83,9 @@ The gateway ID is `bci_takuecom`. The callback endpoint is:
 ```
 
 The architecture handoff is available at the workspace root in `WOOCOMMERCE_GATEWAY_BCI_ARCHITECTURE.md`.
+
+## Changelog
+
+### 1.0.1
+
+- Fixed Cook Islands checkout registration by omitting the unsupported optional billing state from BPC payer data.

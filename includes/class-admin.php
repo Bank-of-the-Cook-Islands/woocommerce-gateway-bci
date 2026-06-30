@@ -187,8 +187,9 @@ final class Admin {
 							<ol>
 								<li><?php esc_html_e( 'Enter the API login and API password supplied for live payments.', self::TEXT_DOMAIN ); ?></li>
 								<li><?php esc_html_e( 'Enter the separate sandbox API login and password for test payments.', self::TEXT_DOMAIN ); ?></li>
-								<li><?php esc_html_e( 'Enable Test Mode while testing. Test Mode sends checkout payments to the sandbox credentials only.', self::TEXT_DOMAIN ); ?></li>
-								<li><?php esc_html_e( 'Untick Test Mode only after confirming that you\'re ready to start receiving live payments.', self::TEXT_DOMAIN ); ?></li>
+								<li><?php esc_html_e( 'Enable Use sandbox credentials and endpoint while testing. Sandbox payments default to EUR.', self::TEXT_DOMAIN ); ?></li>
+								<li><?php esc_html_e( 'Keep Sandbox Currency aligned with the currency selected in the BPC Dev Merchant Portal.', self::TEXT_DOMAIN ); ?></li>
+								<li><?php esc_html_e( 'Untick Use sandbox credentials and endpoint only after confirming that you\'re ready to start receiving live payments.', self::TEXT_DOMAIN ); ?></li>
 							</ol>
 						</div>
 
@@ -740,16 +741,19 @@ final class Admin {
 			'test_mode'                       => [
 				'title'       => __( 'Test Mode', self::TEXT_DOMAIN ),
 				'type'        => 'checkbox',
-				'label'       => __( 'Use sandbox credentials for checkout payments', self::TEXT_DOMAIN ),
+				'label'       => __( 'Use sandbox credentials and endpoint', self::TEXT_DOMAIN ),
 				'default'     => 'yes',
-				'description' => __( 'Keep enabled while testing. Disable only when ready to process live payments.', self::TEXT_DOMAIN ),
+				'description' => __( 'Uses the BPC development environment and its EUR default. Disable only when ready to process live payments.', self::TEXT_DOMAIN ),
 			],
-			'sandbox_force_eur_currency'      => [
-				'title'       => __( 'Sandbox currency override', self::TEXT_DOMAIN ),
-				'type'        => 'checkbox',
-				'label'       => __( 'Force EUR for sandbox payments', self::TEXT_DOMAIN ),
-				'default'     => 'no',
-				'description' => __( 'Debug setting for BPC testing only. When Test Mode is enabled, checkout and renewal requests are sent to BPC as EUR instead of the WooCommerce order currency.', self::TEXT_DOMAIN ),
+			'sandbox_currency'                => [
+				'title'       => __( 'Sandbox currency', self::TEXT_DOMAIN ),
+				'type'        => 'select',
+				'default'     => 'EUR',
+				'description' => __( 'The BPC development environment defaults to EUR. Change this only after selecting the matching currency in the BPC Dev Merchant Portal.', self::TEXT_DOMAIN ),
+				'options'     => [
+					'EUR' => __( 'EUR - Euro (default)', self::TEXT_DOMAIN ),
+					'NZD' => __( 'NZD - New Zealand dollar', self::TEXT_DOMAIN ),
+				],
 			],
 			'sandbox_api_login'               => [
 				'title'       => __( 'Sandbox API login', self::TEXT_DOMAIN ),

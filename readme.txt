@@ -4,7 +4,7 @@ Tags: woocommerce, payment gateway, bci, takuecom, bpc
 Requires at least: 5.0
 Tested up to: 6.9.1
 Requires PHP: 7.4
-Stable tag: 1.0.0
+Stable tag: 1.0.1
 License: GPLv3
 License URI: https://opensource.org/licenses/GPL-3.0
 
@@ -17,7 +17,7 @@ Customers enter card details on the BCI-hosted secure payment page. WooCommerce 
 Features:
 
 * Live and sandbox mode.
-* NZD payment currency with a sandbox-only EUR debug override for BPC testing.
+* NZD live payment currency and EUR-by-default sandbox payments, with a matching sandbox currency selector.
 * Guided merchant setup inside WooCommerce settings.
 * Connection test buttons.
 * Signed callback endpoint at /wp-json/bci-woo/v1/callback.
@@ -32,8 +32,8 @@ Features:
 2. Activate the plugin.
 3. Go to WooCommerce > Settings > Payments.
 4. Open TakuEcom - BCI Payments.
-5. Enable Test mode and enter sandbox credentials first.
-6. Enable Sandbox currency override if the BPC sandbox account only accepts EUR.
+5. Enable Use sandbox credentials and endpoint and enter sandbox credentials first.
+6. Keep Sandbox currency set to EUR unless the development merchant currency has been changed in the BPC Dev Merchant Portal.
 7. Configure callback notifications in the BCI merchant portal.
 8. Save settings and run the connection test.
 9. Place a sandbox order before switching to live mode.
@@ -78,6 +78,10 @@ No. Card data is entered on the BCI-hosted secure payment page. For subscription
 Open WooCommerce > Status > Logs and select the BCI_Woo_Plugin source.
 
 == Changelog ==
+
+= 1.0.1 =
+
+* Fix Cook Islands checkout registration by omitting the unsupported optional billing state from BPC payer data.
 
 = 1.0.0 =
 

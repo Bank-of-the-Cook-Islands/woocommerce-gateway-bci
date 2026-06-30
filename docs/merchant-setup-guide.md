@@ -22,7 +22,7 @@ For subscriptions, you also need WooCommerce Subscriptions and BCI stored creden
 2. Select the Payments tab.
 3. Open TakuEcom - BCI Payments.
 4. Tick Enable TakuEcom - BCI Payments.
-5. Keep Test mode enabled while testing.
+5. Keep **Use sandbox credentials and endpoint** enabled while testing. This also uses the development environment's default EUR currency.
 
 ## Step 2: Enter Sandbox Credentials
 
@@ -30,12 +30,16 @@ In Sandbox Configuration:
 
 1. Enter the Sandbox API Login.
 2. Enter the Sandbox API Password.
-3. Save changes.
-4. Click Test connection.
+3. Keep Sandbox Currency set to EUR. The BPC development environment defaults to EUR.
+4. If your development merchant uses NZD, first change its currency in the BPC Dev Merchant Portal, then select NZD in WooCommerce.
+5. Save changes.
+6. Click Test connection.
 
 The connection test confirms that WordPress can reach the selected BCI gateway endpoint with the saved credentials.
 
 If credentials are rejected, check for copied spaces, the correct environment, and whether the sandbox account has API access.
+
+The WooCommerce sandbox currency must match the currency selected in the BPC Dev Merchant Portal. A mismatch can cause order registration to fail with `Error 3: Unknown currency`.
 
 ## Step 3: Configure Callback Notifications
 
@@ -74,7 +78,7 @@ If store staff find Processing unclear, choose Force Completed. If every paid or
 
 ## Step 5: Test A Sandbox Order
 
-1. Make sure Test mode is enabled.
+1. Make sure Use sandbox credentials and endpoint is enabled. Sandbox payments use EUR unless you selected another matching Sandbox Currency.
 2. Add a product to the cart.
 3. Go through checkout using Card (BCI TakuEcom).
 4. Complete the hosted payment page using sandbox test card details supplied by BCI.
@@ -97,7 +101,7 @@ Only switch to live after sandbox testing succeeds.
 3. Paste the live callback token into WooCommerce.
 4. Save settings.
 5. Run the live connection test.
-6. Untick Test mode.
+6. Untick Use sandbox credentials and endpoint.
 7. Place a small live test order if BCI support has approved that process.
 
 ## Subscriptions
@@ -113,7 +117,7 @@ Before testing renewals, ask BCI support to confirm these permissions on the san
 
 Then:
 
-1. Keep Test mode enabled.
+1. Keep Use sandbox credentials and endpoint enabled.
 2. Enable automatic renewals in the Subscriptions section only after the merchant-specific recurring-payment checklist has passed.
 3. Click Test subscription readiness.
 4. Create a sandbox subscription product.
@@ -157,7 +161,8 @@ When asking for support, include:
 
 - Store URL.
 - WooCommerce order number.
-- Whether Test mode is enabled.
+- Whether Use sandbox credentials and endpoint is enabled.
+- The selected Sandbox Currency and the currency configured in the BPC Dev Merchant Portal.
 - Approximate payment time.
 - Screenshot or copied text from the order notes.
 - Relevant `BCI_Woo_Plugin` log entries with passwords and callback tokens removed.

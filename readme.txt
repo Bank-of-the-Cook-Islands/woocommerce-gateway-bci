@@ -4,7 +4,7 @@ Tags: woocommerce, payment gateway, bci, takuecom, bpc
 Requires at least: 5.0
 Tested up to: 6.9.1
 Requires PHP: 7.4
-Stable tag: 1.0.1
+Stable tag: 1.0.2
 License: GPLv3
 License URI: https://opensource.org/licenses/GPL-3.0
 
@@ -78,6 +78,10 @@ No. Card data is entered on the BCI-hosted secure payment page. For subscription
 Open WooCommerce > Status > Logs and select the BCI_Woo_Plugin source.
 
 == Changelog ==
+
+= 1.0.2 =
+
+* Expanded the project README and added the BPC integration and API reference documentation.
 
 = 1.0.1 =
 

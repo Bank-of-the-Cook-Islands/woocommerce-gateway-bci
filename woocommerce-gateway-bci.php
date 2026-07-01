@@ -2,7 +2,7 @@
 /**
  * Plugin Name: TakuEcom - BCI Payments for WooCommerce
  * Description: Official Bank of the Cook Islands TakuEcom payment gateway for WooCommerce.
- * Version: 1.0.1
+ * Version: 1.0.2
  * Requires at least: 5.0
  * Requires PHP: 7.4
  * Author: Bank of the Cook Islands

@@ -8,7 +8,7 @@ if (!defined('ABSPATH')) {
 
 final class Config
 {
-    public const VERSION = '1.0.1';
+    public const VERSION = '1.0.2';
     public const TEXT_DOMAIN = 'bci-woo';
     public const GATEWAY_ID = 'bci_takuecom';
     public const OPTION_KEY = 'woocommerce_bci_takuecom_settings';

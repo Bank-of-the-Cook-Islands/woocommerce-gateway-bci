@@ -82,9 +82,22 @@ The gateway ID is `bci_takuecom`. The callback endpoint is:
 /wp-json/bci-woo/v1/callback
 ```
 
-The architecture handoff is available at the workspace root in `WOOCOMMERCE_GATEWAY_BCI_ARCHITECTURE.md`.
+## Licence
+
+This plugin is licensed under the [GNU General Public Licence v3.0](https://opensource.org/licenses/GPL-3.0).
+
+---
+
+**Author:** Bank of the Cook Islands — [bci.co.ck](https://bci.co.ck) — cash@bci.co.ck
+**Version:** 2.0.0
+
+---
 
 ## Changelog
+
+### 1.0.2
+
+- Expanded the project README and added the BPC integration and API reference documentation.
 
 ### 1.0.1
 

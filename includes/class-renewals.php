@@ -9,6 +9,10 @@ namespace BCI\Woo;
 
 defined('ABSPATH') || exit;
 
+if (!class_exists(__NAMESPACE__ . '\Order_State') && is_readable(__DIR__ . '/class-order-state.php')) {
+	require_once __DIR__ . '/class-order-state.php';
+}
+
 if (!class_exists(__NAMESPACE__ . '\Tokens') && is_readable(__DIR__ . '/class-tokens.php')) {
 	require_once __DIR__ . '/class-tokens.php';
 }
@@ -18,9 +22,6 @@ if (!class_exists(__NAMESPACE__ . '\Subscriptions') && is_readable(__DIR__ . '/c
 }
 
 final class Renewals {
-	private const META_MD_ORDER = '_bci_woo_md_order';
-	private const META_ORDER_NUMBER = '_bci_woo_order_number';
-
 	/** @var object|null */
 	private $gateway;
 
@@ -111,7 +112,9 @@ final class Renewals {
 			return;
 		}
 
-		$environment  = $this->environment_for_order($renewal_order, $subscription, $token_data);
+		// A renewal is charged wherever the binding was created, which the
+		// subscription remembers until this renewal order records it below.
+		$environment  = Order_State::for($renewal_order)->environment($subscription);
 		$order_number = $this->build_order_number($renewal_order);
 		$params       = [
 			'orderNumber' => $order_number,
@@ -152,20 +155,13 @@ final class Renewals {
 		}
 
 		$md_order = $this->extract_order_id($result);
-		if ($md_order !== '') {
-			$renewal_order->update_meta_data(self::META_MD_ORDER, $md_order);
-		}
-
-		$renewal_order->update_meta_data(self::META_ORDER_NUMBER, $order_number);
-		$renewal_order->update_meta_data(Tokens::META_ENVIRONMENT, $environment);
+		Order_State::for($renewal_order)
+			->record_registration($md_order, $order_number, $environment)
+			->save();
 
 		$embedded_status = $this->embedded_order_status($result);
 		if ($embedded_status !== []) {
 			$this->tokens->capture_from_status($renewal_order, $embedded_status, $client_id);
-		}
-
-		if (method_exists($renewal_order, 'save')) {
-			$renewal_order->save();
 		}
 
 		// The renewal response embeds an order status, but it is not interpreted
@@ -387,35 +383,6 @@ final class Renewals {
 		$number    = method_exists($order, 'get_order_number') ? $order->get_order_number() : $order->get_id();
 
 		return substr($this->clean(sprintf('WooCommerce order #%s - %s', $number, $site_name)), 0, 598);
-	}
-
-	private function environment_for_order(\WC_Order $order, $subscription, array $token_data): string {
-		$environment = $this->clean($order->get_meta(Tokens::META_ENVIRONMENT));
-
-		if ($environment === '' && is_object($subscription) && method_exists($subscription, 'get_meta')) {
-			$environment = $this->clean($subscription->get_meta(Tokens::META_ENVIRONMENT));
-		}
-
-		if ($environment === '') {
-			$environment = $this->clean($token_data['environment'] ?? '');
-		}
-
-		if ($environment === '' && is_object($this->gateway) && is_callable([$this->gateway, 'environment'])) {
-			try {
-				$environment = $this->clean($this->gateway->environment());
-			} catch (\Throwable $e) {
-				$environment = '';
-			}
-		}
-
-		if ($environment === '' && \function_exists('get_option')) {
-			$settings = get_option('woocommerce_' . $this->gateway_id() . '_settings', []);
-			if (is_array($settings) && (($settings['test_mode'] ?? 'no') === 'yes')) {
-				$environment = 'sandbox';
-			}
-		}
-
-		return in_array($environment, ['live', 'sandbox'], true) ? $environment : 'live';
 	}
 
 	private function add_order_note(\WC_Order $order, string $message): void {

@@ -97,6 +97,7 @@ woocommerce-gateway-bci/
 │   ├── class-exception.php
 │   ├── class-gateway.php
 │   ├── class-log.php
+│   ├── class-order-state.php
 │   ├── class-plugin.php
 │   ├── class-renewals.php
 │   ├── class-resolution.php
@@ -161,9 +162,14 @@ _bci_woo_binding_id
 _bci_woo_client_id
 _bci_woo_masked_pan
 _bci_woo_card_expiry
+_bci_woo_binding_missing_note_added
 ```
 
+`Order_State` (`class-order-state.php`) owns every one of them. It is the only code that names a key or decides the shape of what is stored under one — gateway status is always recorded as an integer, a card expiry always as `YYYYMM`, a card label always masked — so no two callers can disagree about how order state is written. Everything else asks it for what it needs: `Order_State::for($order)->md_order()`, `->environment()`, `->record_status()`, `->is_resolvable()`. The keys themselves are unchanged and stay readable in the database for support queries; values written by earlier versions are normalised on the way out.
+
 For one-off payments, `_bci_woo_md_order`, `_bci_woo_order_number`, and `_bci_woo_environment` are the critical fields. They are persisted immediately after `register.do` returns successfully so browser return, callbacks, manual checks, and scheduled recovery can resolve the order later.
+
+`_bci_woo_environment` records where a payment was taken, and is read back rather than recomputed: an order registered in sandbox is still checked against sandbox after the merchant leaves test mode. A renewal order is created fresh by WooCommerce Subscriptions and carries none of its own, so it inherits the environment from the subscription it renews and records it when it is charged.
 
 Stored credential metadata is only relevant when experimental subscription renewals are explicitly enabled.
 

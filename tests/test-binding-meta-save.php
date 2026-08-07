@@ -199,10 +199,17 @@ namespace BCI\Woo {
         'cardAuthInfo' => ['expiration' => '202812'],
     ]);
 
-    assert_persisted($order, Config::META_BINDING_ID, 'binding-guest', 'guest order binding id');
-    assert_persisted($order, Config::META_CLIENT_ID, 'wc_guest_abc', 'guest order client id');
-    assert_persisted($order, Config::META_CARD_EXPIRY, '202812', 'guest order card expiry');
-    assert_persisted($order, Config::META_LAST_STATUS, (string) Config::STATUS_CAPTURED, 'guest order last status');
+    assert_persisted($order, '_bci_woo_binding_id', 'binding-guest', 'guest order binding id');
+    assert_persisted($order, '_bci_woo_client_id', 'wc_guest_abc', 'guest order client id');
+    assert_persisted($order, '_bci_woo_card_expiry', '202812', 'guest order card expiry');
+    assert_persisted($order, '_bci_woo_last_status', (string) Config::STATUS_CAPTURED, 'guest order last status');
+
+    // The order never recorded an environment, and binding capture must not
+    // invent one from the plugin's current setting: a guessed value would become
+    // a permanent record and outlive the setting that produced it.
+    if (($order->persisted['_bci_woo_environment'] ?? '') !== '') {
+        throw new \RuntimeException('binding capture must not persist a guessed environment');
+    }
 
     // Nested binding payload, client id falling back to the value stored at registration.
     $order = resolve(
@@ -212,12 +219,12 @@ namespace BCI\Woo {
             'actionCode' => 0,
             'bindingInfo' => ['bindingId' => 'binding-nested'],
         ],
-        [Config::META_CLIENT_ID => 'wc_customer_9', Config::META_ENVIRONMENT => 'live'],
+        ['_bci_woo_client_id' => 'wc_customer_9', '_bci_woo_environment' => 'live'],
         9
     );
 
-    assert_persisted($order, Config::META_BINDING_ID, 'binding-nested', 'nested binding id');
-    assert_persisted($order, Config::META_CLIENT_ID, 'wc_customer_9', 'retained client id');
+    assert_persisted($order, '_bci_woo_binding_id', 'binding-nested', 'nested binding id');
+    assert_persisted($order, '_bci_woo_client_id', 'wc_customer_9', 'retained client id');
 
     // No binding in the response: the order still resolves and nothing is left staged.
     $order = resolve([
@@ -226,7 +233,7 @@ namespace BCI\Woo {
         'actionCode' => 0,
     ]);
 
-    if (($order->persisted[Config::META_BINDING_ID] ?? '') !== '') {
+    if (($order->persisted['_bci_woo_binding_id'] ?? '') !== '') {
         throw new \RuntimeException('A binding id was stored for a response that carried none.');
     }
 

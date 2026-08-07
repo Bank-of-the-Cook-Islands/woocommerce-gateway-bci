@@ -9,14 +9,11 @@ namespace BCI\Woo;
 
 defined('ABSPATH') || exit;
 
-final class Tokens {
-	public const META_BINDING_ID = '_bci_woo_binding_id';
-	public const META_CLIENT_ID = '_bci_woo_client_id';
-	public const META_MASKED_PAN = '_bci_woo_masked_pan';
-	public const META_CARD_EXPIRY = '_bci_woo_card_expiry';
-	public const META_ENVIRONMENT = '_bci_woo_environment';
-	public const META_WC_TOKEN_ID = '_bci_woo_wc_token_id';
+if (!class_exists(__NAMESPACE__ . '\Order_State') && is_readable(__DIR__ . '/class-order-state.php')) {
+	require_once __DIR__ . '/class-order-state.php';
+}
 
+final class Tokens {
 	/** @var string */
 	private $gateway_id;
 
@@ -25,7 +22,7 @@ final class Tokens {
 	}
 
 	public static function store_from_order_and_status(\WC_Order $order, array $status): bool {
-		return (new self())->capture_from_status($order, $status, (string) $order->get_meta(self::META_CLIENT_ID, true));
+		return (new self())->capture_from_status($order, $status, Order_State::for($order)->client_id());
 	}
 
 	public static function default_gateway_id(): string {
@@ -119,27 +116,14 @@ final class Tokens {
 	}
 
 	public function store_order_token_data(\WC_Order $order, array $token_data): bool {
-		$changed = false;
+		$state = Order_State::for($order)->record_card($token_data);
 
-		$changed = $this->update_meta_if_present($order, self::META_BINDING_ID, $token_data['binding_id'] ?? '') || $changed;
-		$changed = $this->update_meta_if_present($order, self::META_CLIENT_ID, $token_data['client_id'] ?? '') || $changed;
-		$changed = $this->update_meta_if_present($order, self::META_MASKED_PAN, $this->mask_pan($token_data['masked_pan'] ?? '')) || $changed;
-		$changed = $this->update_meta_if_present($order, self::META_CARD_EXPIRY, $this->normalise_expiry($token_data['expiry'] ?? '')) || $changed;
+		// The token is built from the recorded state rather than from the payload,
+		// so the card it shows a customer cannot disagree with the order's meta.
+		$this->maybe_create_payment_token($order, $state, $token_data);
 
-		$environment = $this->clean($token_data['environment'] ?? '');
-		if ($environment === '' && method_exists($order, 'get_meta')) {
-			$environment = (string) $order->get_meta(self::META_ENVIRONMENT);
-		}
-		$changed     = $this->update_meta_if_present($order, self::META_ENVIRONMENT, $environment) || $changed;
-
-		$wc_token_id = $this->maybe_create_payment_token($order, $token_data);
-		if ($wc_token_id > 0) {
-			$changed = $this->update_meta_if_present($order, self::META_WC_TOKEN_ID, (string) $wc_token_id) || $changed;
-		}
-
-		if ($changed && method_exists($order, 'save')) {
-			$order->save();
-		}
+		$changed = $state->has_changes();
+		$state->save();
 
 		foreach ($this->related_subscriptions_for_order($order) as $subscription) {
 			$changed = $this->store_subscription_token_data($subscription, $token_data) || $changed;
@@ -162,31 +146,16 @@ final class Tokens {
 			return false;
 		}
 
-		$changed = false;
-		$changed = $this->update_meta_if_present($subscription, self::META_BINDING_ID, $token_data['binding_id'] ?? '') || $changed;
-		$changed = $this->update_meta_if_present($subscription, self::META_CLIENT_ID, $token_data['client_id'] ?? '') || $changed;
-		$changed = $this->update_meta_if_present($subscription, self::META_MASKED_PAN, $this->mask_pan($token_data['masked_pan'] ?? '')) || $changed;
-		$changed = $this->update_meta_if_present($subscription, self::META_CARD_EXPIRY, $this->normalise_expiry($token_data['expiry'] ?? '')) || $changed;
+		$state   = Order_State::for($subscription)->record_card($token_data);
+		$changed = $state->has_changes();
 
-		if (($token_data['environment'] ?? '') !== '') {
-			$changed = $this->update_meta_if_present($subscription, self::META_ENVIRONMENT, $token_data['environment']) || $changed;
-		}
-
-		if ($changed && method_exists($subscription, 'save')) {
-			$subscription->save();
-		}
+		$state->save();
 
 		return $changed;
 	}
 
 	public function token_data_from_order(\WC_Order $order): array {
-		return [
-			'binding_id'  => $this->clean($order->get_meta(self::META_BINDING_ID)),
-			'client_id'   => $this->clean($order->get_meta(self::META_CLIENT_ID)),
-			'masked_pan'  => $this->clean($order->get_meta(self::META_MASKED_PAN)),
-			'expiry'      => $this->clean($order->get_meta(self::META_CARD_EXPIRY)),
-			'environment' => $this->clean($order->get_meta(self::META_ENVIRONMENT)),
-		];
+		return Order_State::for($order)->stored_card();
 	}
 
 	/**
@@ -197,13 +166,7 @@ final class Tokens {
 			return [];
 		}
 
-		return [
-			'binding_id'  => $this->clean($subscription->get_meta(self::META_BINDING_ID)),
-			'client_id'   => $this->clean($subscription->get_meta(self::META_CLIENT_ID)),
-			'masked_pan'  => $this->clean($subscription->get_meta(self::META_MASKED_PAN)),
-			'expiry'      => $this->clean($subscription->get_meta(self::META_CARD_EXPIRY)),
-			'environment' => $this->clean($subscription->get_meta(self::META_ENVIRONMENT)),
-		];
+		return Order_State::for($subscription)->stored_card();
 	}
 
 	public function related_subscriptions_for_order(\WC_Order $order): array {
@@ -242,7 +205,7 @@ final class Tokens {
 		return array_values($unique);
 	}
 
-	private function maybe_create_payment_token(\WC_Order $order, array $token_data): int {
+	private function maybe_create_payment_token(\WC_Order $order, Order_State $state, array $token_data): int {
 		// Saved cards belong to the experimental subscriptions feature. While it is off the
 		// gateway does not declare tokenisation support, so a token would be unusable at
 		// checkout and would surface an unconsented card under My Account.
@@ -254,10 +217,10 @@ final class Tokens {
 			return 0;
 		}
 
-		$binding_id = $this->clean($token_data['binding_id'] ?? '');
+		$binding_id = $state->binding_id();
 		$user_id    = (int) $order->get_customer_id();
-		$last4      = $this->last4_from_mask($token_data['masked_pan'] ?? '');
-		$expiry     = $this->normalise_expiry($token_data['expiry'] ?? '');
+		$last4      = $this->last4_from_mask($state->masked_pan());
+		$expiry     = $state->card_expiry();
 
 		if ($binding_id === '' || $user_id <= 0 || $last4 === '' || strlen($expiry) !== 6) {
 			return 0;
@@ -308,20 +271,6 @@ final class Tokens {
 		return false;
 	}
 
-	private function update_meta_if_present($object, string $key, $value): bool {
-		$value = $this->clean($value);
-		if ($value === '' || !is_object($object) || !method_exists($object, 'update_meta_data')) {
-			return false;
-		}
-
-		if (method_exists($object, 'get_meta') && (string) $object->get_meta($key) === $value) {
-			return false;
-		}
-
-		$object->update_meta_data($key, $value);
-		return true;
-	}
-
 	private function first_value(array $source, array $paths, string $fallback = ''): string {
 		foreach ($paths as $path) {
 			$value = $this->array_get($source, $path);
@@ -344,27 +293,6 @@ final class Tokens {
 		}
 
 		return $current;
-	}
-
-	private function normalise_expiry($value): string {
-		$value = preg_replace('/\D+/', '', $this->clean($value));
-
-		if (strlen($value) === 4) {
-			// Accept MMYY from legacy/token displays and normalise to YYYYMM.
-			return '20' . substr($value, 2, 2) . substr($value, 0, 2);
-		}
-
-		return strlen($value) >= 6 ? substr($value, 0, 6) : $value;
-	}
-
-	/**
-	 * Card labels reach here from callbacks and from caller supplied token data,
-	 * so mask again before anything is written to meta.
-	 *
-	 * @param mixed $value
-	 */
-	private function mask_pan($value): string {
-		return Config::mask_pan($this->clean($value));
 	}
 
 	private function last4_from_mask($value): string {

@@ -6,6 +6,10 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
+if (!class_exists(__NAMESPACE__ . '\Order_State') && is_readable(__DIR__ . '/class-order-state.php')) {
+    require_once __DIR__ . '/class-order-state.php';
+}
+
 final class Gateway extends \WC_Payment_Gateway
 {
     private Api $api;
@@ -398,13 +402,12 @@ final class Gateway extends \WC_Payment_Gateway
             return ['result' => 'failure'];
         }
 
-        $order->update_meta_data(Config::META_MD_ORDER, sanitize_text_field((string) $result['orderId']));
-        $order->update_meta_data(Config::META_ORDER_NUMBER, sanitize_text_field((string) $params['orderNumber']));
-        $order->update_meta_data(Config::META_ENVIRONMENT, $environment);
-
-        if (!empty($params['clientId'])) {
-            $order->update_meta_data(Config::META_CLIENT_ID, sanitize_text_field((string) $params['clientId']));
-        }
+        Order_State::for($order)->record_registration(
+            (string) $result['orderId'],
+            (string) $params['orderNumber'],
+            $environment,
+            (string) ($params['clientId'] ?? '')
+        );
 
         $order->add_order_note(__('BCI TakuEcom payment registered. Customer redirected to the hosted payment form.', Config::TEXT_DOMAIN));
         $order->save();
@@ -428,7 +431,7 @@ final class Gateway extends \WC_Payment_Gateway
         }
 
         if (($order->has_status(['pending', 'failed', 'on-hold']) || !$order->is_paid())
-            && $order->get_meta(Config::META_MD_ORDER, true)
+            && Order_State::for($order)->is_resolvable()
         ) {
             $this->resolver->resolve($order, 'browser return');
             $order = wc_get_order($order_id);

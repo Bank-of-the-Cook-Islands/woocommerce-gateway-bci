@@ -46,6 +46,15 @@ namespace {
 }
 
 namespace BCI\Woo {
+    /** Order state asks the plugin which environment a payment belongs to. */
+    final class Api
+    {
+        public static function current_environment(): string
+        {
+            return 'live';
+        }
+    }
+
     require dirname(__DIR__) . '/includes/class-config.php';
     require dirname(__DIR__) . '/includes/class-tokens.php';
     require dirname(__DIR__) . '/includes/class-status-resolver.php';
@@ -115,8 +124,8 @@ namespace BCI\Woo {
         'client_id' => 'wc_customer_1',
         'masked_pan' => RAW_PAN,
     ]);
-    assert_not_raw((string) $order->meta[Tokens::META_MASKED_PAN], 'store_order_token_data masks the pan');
-    assert_same('************0000', (string) $order->meta[Tokens::META_MASKED_PAN], 'store_order_token_data masks the pan');
+    assert_not_raw((string) $order->meta['_bci_woo_masked_pan'], 'store_order_token_data masks the pan');
+    assert_same('************0000', (string) $order->meta['_bci_woo_masked_pan'], 'store_order_token_data masks the pan');
 
     // Status_Resolver writes the same meta key straight from the status payload.
     $resolver = (new \ReflectionClass(Status_Resolver::class))->newInstanceWithoutConstructor();
@@ -127,10 +136,10 @@ namespace BCI\Woo {
         'bindingInfo' => ['clientId' => 'wc_customer_2'],
         'cardAuthInfo' => ['pan' => RAW_PAN, 'expiration' => '203012'],
     ]);
-    assert_not_raw((string) $resolver_order->meta[Config::META_MASKED_PAN], 'maybe_store_binding masks the pan');
+    assert_not_raw((string) $resolver_order->meta['_bci_woo_masked_pan'], 'maybe_store_binding masks the pan');
     assert_same(
         '************0000',
-        (string) $resolver_order->meta[Config::META_MASKED_PAN],
+        (string) $resolver_order->meta['_bci_woo_masked_pan'],
         'maybe_store_binding masks the pan'
     );
 
@@ -149,7 +158,7 @@ namespace BCI\Woo {
         'masked_pan' => RAW_PAN . ' 12/30',
     ]);
     assert_not_raw(
-        (string) $label_order->meta[Tokens::META_MASKED_PAN],
+        (string) $label_order->meta['_bci_woo_masked_pan'],
         'store_order_token_data masks a label carrying an expiry'
     );
 
@@ -160,7 +169,7 @@ namespace BCI\Woo {
         'cardAuthInfo' => ['pan' => RAW_PAN . ' 12/30'],
     ]);
     assert_not_raw(
-        (string) $label_resolver_order->meta[Config::META_MASKED_PAN],
+        (string) $label_resolver_order->meta['_bci_woo_masked_pan'],
         'maybe_store_binding masks a label carrying an expiry'
     );
 

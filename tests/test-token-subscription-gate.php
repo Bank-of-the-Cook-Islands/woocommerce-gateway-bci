@@ -207,8 +207,7 @@ namespace BCI\Woo {
 
     assert_same(true, $tokens->store_order_token_data($order, token_data()), 'order meta is stored');
     assert_same([], $bci_test_saved_tokens, 'no WC payment token is created while subscriptions are disabled');
-    assert_same('binding-abc-123', $order->get_meta(Tokens::META_BINDING_ID), 'binding id meta is stored');
-    assert_same('', $order->get_meta(Tokens::META_WC_TOKEN_ID), 'no WC token id meta is recorded');
+    assert_same('binding-abc-123', $order->get_meta('_bci_woo_binding_id'), 'binding id meta is stored');
 
     // Subscriptions enabled: tokenisation is supported, so the token is created as before.
     set_subscriptions_enabled(true);
@@ -217,8 +216,11 @@ namespace BCI\Woo {
 
     $tokens->store_order_token_data($order, token_data());
     assert_same(1, count($bci_test_saved_tokens), 'a WC payment token is created while subscriptions are enabled');
-    assert_same('1', $order->get_meta(Tokens::META_WC_TOKEN_ID), 'WC token id meta is recorded');
     assert_same('0000', $bci_test_saved_tokens[0]->get_last4(), 'token carries the last four digits');
+
+    // The WooCommerce token id is not mirrored into order meta: nothing ever read
+    // it back, and the tokens API is the record of which cards a customer has.
+    assert_same('', $order->get_meta('_bci_woo_wc_token_id'), 'no WC token id meta is written');
 
     // Repeat captures reuse the existing token rather than stacking duplicates.
     $repeat = new \WC_Order(7);
@@ -229,6 +231,15 @@ namespace BCI\Woo {
     $guest = new \WC_Order(0);
     $tokens->store_order_token_data($guest, token_data());
     assert_same(1, count($bci_test_saved_tokens), 'guest orders never create a token');
+
+    // Credential data recorded onto a subscription must actually be saved, not
+    // merely staged — the never-saved-binding failure class of issue #9.
+    $subscription = new \WC_Order(7);
+    assert_same(true, $tokens->store_subscription_token_data($subscription, token_data()), 'subscription credential recording reports a change');
+    assert_same('binding-abc-123', (string) $subscription->get_meta('_bci_woo_binding_id'), 'subscription carries the binding id');
+    if ($subscription->saves < 1) {
+        throw new \RuntimeException('subscription meta was staged but never saved');
+    }
 
     echo "Token subscription gate tests passed.\n";
 }

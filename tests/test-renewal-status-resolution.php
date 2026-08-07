@@ -196,8 +196,6 @@ namespace BCI\Woo {
     /** Stands in for the real Tokens; the renewal path only reads stored credentials. */
     final class Tokens
     {
-        public const META_ENVIRONMENT = '_bci_woo_environment';
-
         public array $captured = [];
 
         public function __construct(string $gateway_id = '') {}
@@ -212,7 +210,6 @@ namespace BCI\Woo {
             return [
                 'binding_id' => 'binding-sub-1',
                 'client_id' => 'wc_customer_3',
-                'environment' => 'sandbox',
             ];
         }
 
@@ -231,9 +228,12 @@ namespace BCI\Woo {
 
     final class Subscriptions
     {
+        /** @var object|null The subscription every renewal order here belongs to. */
+        public $subscription;
+
         public function subscription_for_renewal_order($order)
         {
-            return null;
+            return $this->subscription;
         }
     }
 
@@ -283,7 +283,12 @@ namespace BCI\Woo {
             ],
         ];
 
-        $renewals = new Renewals(null, $api, new Status_Resolver($api), new Subscriptions(), new Tokens());
+        // The subscription was taken out in sandbox, and remembers it. The renewal
+        // order WooCommerce Subscriptions just created carries no BCI state at all.
+        $subscriptions = new Subscriptions();
+        $subscriptions->subscription = new \WC_Order(['_bci_woo_environment' => 'sandbox']);
+
+        $renewals = new Renewals(null, $api, new Status_Resolver($api), $subscriptions, new Tokens());
         $renewals->process_subscription_payment('12.50', $order);
 
         $resolved = [];
@@ -317,7 +322,7 @@ namespace BCI\Woo {
     assert_same('processing', $order->status, 'captured renewal: order status');
     assert_same('auth-renewal', $order->transaction_id, 'captured renewal: transaction id');
     assert_same(['completed'], $resolved, 'captured renewal: resolved hook');
-    assert_same('md-renewal-1', (string) ($order->persisted[Config::META_MD_ORDER] ?? ''), 'captured renewal: gateway reference');
+    assert_same('md-renewal-1', (string) ($order->persisted['_bci_woo_md_order'] ?? ''), 'captured renewal: gateway reference');
 
     // The renewal charge itself still goes out against the stored credential and
     // the environment the subscription was created in.
@@ -348,10 +353,10 @@ namespace BCI\Woo {
     // Gateway state is recorded once, as the integer the shared table read.
     assert_same(
         Config::STATUS_DECLINED,
-        $order->persisted[Config::META_LAST_STATUS] ?? null,
+        $order->persisted['_bci_woo_last_status'] ?? null,
         'declined renewal: last status is an int'
     );
-    assert_same(116, $order->persisted[Config::META_LAST_ACTION_CODE] ?? null, 'declined renewal: last action code is an int');
+    assert_same(116, $order->persisted['_bci_woo_last_action_code'] ?? null, 'declined renewal: last action code is an int');
 
     echo "Renewal status resolution tests passed.\n";
 }

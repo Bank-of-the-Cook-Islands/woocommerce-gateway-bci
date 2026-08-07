@@ -9,6 +9,10 @@ namespace BCI\Woo;
 
 defined('ABSPATH') || exit;
 
+if (!class_exists(__NAMESPACE__ . '\Order_State') && is_readable(__DIR__ . '/class-order-state.php')) {
+	require_once __DIR__ . '/class-order-state.php';
+}
+
 if (!class_exists(__NAMESPACE__ . '\Tokens') && is_readable(__DIR__ . '/class-tokens.php')) {
 	require_once __DIR__ . '/class-tokens.php';
 }
@@ -27,8 +31,6 @@ final class Subscriptions {
 		'subscription_payment_method_change_admin',
 		'multiple_subscriptions',
 	];
-
-	private const META_BINDING_MISSING_NOTE = '_bci_woo_binding_missing_note_added';
 
 	/** @var object|null */
 	private $gateway;
@@ -135,10 +137,7 @@ final class Subscriptions {
 		$params['clientId'] = $client_id;
 		$params['features'] = $this->ensure_feature($params['features'] ?? '', 'FORCE_CREATE_BINDING');
 
-		$order->update_meta_data(Tokens::META_CLIENT_ID, $client_id);
-		if (method_exists($order, 'save')) {
-			$order->save();
-		}
+		Order_State::for($order)->record_client_id($client_id)->save();
 
 		foreach ($this->tokens->related_subscriptions_for_order($order) as $subscription) {
 			$this->tokens->store_subscription_token_data($subscription, [
@@ -174,15 +173,15 @@ final class Subscriptions {
 			return false;
 		}
 
-		$client_id = $this->clean($order->get_meta(Tokens::META_CLIENT_ID));
+		$state     = Order_State::for($order);
+		$client_id = $state->client_id();
 		if ($client_id === '') {
 			$client_id = $this->tokens->client_id_for_order($order);
 		}
 
 		$token_data = $this->tokens->token_data_from_status($status, $client_id);
-		$environment = $this->clean($order->get_meta(Tokens::META_ENVIRONMENT));
-		if ($environment !== '') {
-			$token_data['environment'] = $environment;
+		if ($state->has_environment()) {
+			$token_data['environment'] = $state->environment();
 		}
 
 		if ($token_data['binding_id'] === '') {
@@ -207,7 +206,7 @@ final class Subscriptions {
 		return $this->tokens->capture_from_callback(
 			$order,
 			$params,
-			$this->clean($order->get_meta(Tokens::META_CLIENT_ID))
+			Order_State::for($order)->client_id()
 		);
 	}
 
@@ -355,7 +354,9 @@ final class Subscriptions {
 	}
 
 	private function maybe_note_missing_binding(\WC_Order $order): void {
-		if ((string) $order->get_meta(self::META_BINDING_MISSING_NOTE) === 'yes') {
+		$state = Order_State::for($order);
+
+		if ($state->binding_missing_noted()) {
 			return;
 		}
 
@@ -368,10 +369,7 @@ final class Subscriptions {
 			$order->add_order_note($message);
 		}
 
-		$order->update_meta_data(self::META_BINDING_MISSING_NOTE, 'yes');
-		if (method_exists($order, 'save')) {
-			$order->save();
-		}
+		$state->note_binding_missing()->save();
 
 		$this->log('notice', 'BCI subscription payment completed without a binding ID.', [
 			'order_id' => $order->get_id(),

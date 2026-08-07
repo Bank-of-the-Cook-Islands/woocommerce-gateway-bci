@@ -10,6 +10,10 @@ if (!class_exists(__NAMESPACE__ . '\Resolution') && is_readable(__DIR__ . '/clas
     require_once __DIR__ . '/class-resolution.php';
 }
 
+if (!class_exists(__NAMESPACE__ . '\Order_State') && is_readable(__DIR__ . '/class-order-state.php')) {
+    require_once __DIR__ . '/class-order-state.php';
+}
+
 final class Status_Resolver
 {
     private Api $api;
@@ -137,8 +141,7 @@ final class Status_Resolver
             return;
         }
 
-        $order->update_meta_data(Config::META_LAST_STATUS, $resolution->order_status);
-        $order->update_meta_data(Config::META_LAST_ACTION_CODE, $resolution->action_code);
+        Order_State::for($order)->record_status($resolution->order_status, $resolution->action_code);
 
         switch ($resolution->outcome) {
             case Resolution::COMPLETED:
@@ -196,18 +199,13 @@ final class Status_Resolver
      */
     private function fetch_status(\WC_Order $order, string $context): ?array
     {
-        $md_order = (string) $order->get_meta(Config::META_MD_ORDER, true);
-        if ($md_order === '') {
+        $state = Order_State::for($order);
+        if (!$state->is_resolvable()) {
             $order->add_order_note(__('BCI status check skipped: no gateway reference is stored on this order.', Config::TEXT_DOMAIN));
             return null;
         }
 
-        $environment = (string) $order->get_meta(Config::META_ENVIRONMENT, true);
-        if ($environment === '') {
-            $environment = Api::current_environment();
-        }
-
-        $status = $this->api->get_order_status($md_order, $environment);
+        $status = $this->api->get_order_status($state->md_order(), $state->environment());
         if (is_wp_error($status)) {
             $order->add_order_note(sprintf(
                 /* translators: 1: context, 2: error message. */
@@ -230,7 +228,7 @@ final class Status_Resolver
     {
         $transaction_id = sanitize_text_field((string) ($status['authRefNum'] ?? ''));
         if ($transaction_id === '') {
-            $transaction_id = (string) $order->get_meta(Config::META_MD_ORDER, true);
+            $transaction_id = Order_State::for($order)->md_order();
         }
 
         if (!$order->is_paid()) {
@@ -329,37 +327,32 @@ final class Status_Resolver
             return;
         }
 
-        $order->update_meta_data(Config::META_BINDING_ID, $binding_id);
+        $state = Order_State::for($order);
 
-        $client_id = (string) ($status['bindingInfo']['clientId'] ?? $order->get_meta(Config::META_CLIENT_ID, true));
-        if ($client_id !== '') {
-            $order->update_meta_data(Config::META_CLIENT_ID, $client_id);
-        }
+        $card = [
+            'binding_id' => $binding_id,
+            'client_id' => (string) ($status['bindingInfo']['clientId'] ?? $state->client_id()),
+            'masked_pan' => (string) ($status['cardAuthInfo']['maskedPan'] ?? $status['cardAuthInfo']['pan'] ?? ''),
+            'expiry' => (string) ($status['cardAuthInfo']['expiration'] ?? ''),
+            // Only an environment the order actually recorded may be persisted.
+            // environment()'s global fallback is a read-time guess; writing it
+            // would permanently stamp orders registered before the setting last
+            // changed, and propagate the guess to their subscriptions.
+            'environment' => $state->has_environment() ? $state->environment() : '',
+        ];
 
-        $masked_pan = Config::mask_pan((string) ($status['cardAuthInfo']['maskedPan'] ?? $status['cardAuthInfo']['pan'] ?? ''));
-        if ($masked_pan !== '') {
-            $order->update_meta_data(Config::META_MASKED_PAN, $masked_pan);
-        }
-
-        $expiry = (string) ($status['cardAuthInfo']['expiration'] ?? '');
-        if ($expiry !== '') {
-            $order->update_meta_data(Config::META_CARD_EXPIRY, $expiry);
-        }
+        $state->record_card($card);
 
         if (class_exists(__NAMESPACE__ . '\Tokens')) {
-            (new Tokens(Config::GATEWAY_ID))->store_order_token_data($order, [
-                'binding_id' => $binding_id,
-                'client_id' => $client_id,
-                'masked_pan' => $masked_pan,
-                'expiry' => $expiry,
-                'environment' => (string) $order->get_meta(Config::META_ENVIRONMENT, true),
-            ]);
+            // Propagates the same credential to the subscriptions this order backs
+            // and, where the customer consented, to a WooCommerce payment token.
+            (new Tokens(Config::GATEWAY_ID))->store_order_token_data($order, $card);
         }
 
         // mark_paid() has already saved the order, and Tokens only saves when its own
         // change detection fires — which it cannot, because it compares against the
         // meta staged just above. Persist the binding here so it never gets dropped.
-        $order->save();
+        $state->save();
     }
 
     private function extract_binding_id(array $status): string

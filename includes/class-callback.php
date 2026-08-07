@@ -7,10 +7,11 @@ if (!defined('ABSPATH')) {
 	exit;
 }
 
-final class Callback {
-	private const META_MD_ORDER = '_bci_woo_md_order';
-	private const META_ORDER_NUMBER = '_bci_woo_order_number';
+if (!class_exists(__NAMESPACE__ . '\Order_State') && is_readable(__DIR__ . '/class-order-state.php')) {
+	require_once __DIR__ . '/class-order-state.php';
+}
 
+final class Callback {
 	/**
 	 * Lower-cased names of every parameter BPC is documented to send in
 	 * callback notifications (docs/bpc/api-reference/17-callback-notifications.md).
@@ -107,8 +108,10 @@ final class Callback {
 			return new \WP_REST_Response(null, 200);
 		}
 
+		$state = Order_State::for($order);
+
 		if ($md_order !== '') {
-			$stored_md_order = (string) $order->get_meta(self::META_MD_ORDER);
+			$stored_md_order = $state->md_order();
 
 			if ($stored_md_order !== '' && !hash_equals($stored_md_order, $md_order)) {
 				self::log('notice', 'BCI callback rejected: mdOrder does not match order meta.', [
@@ -118,12 +121,11 @@ final class Callback {
 			}
 
 			if ($stored_md_order === '') {
-				$order->update_meta_data(self::META_MD_ORDER, $md_order);
-				$order->save();
+				$state->record_md_order($md_order)->save();
 			}
 		}
 
-		if ((string) $order->get_meta(self::META_MD_ORDER) === '') {
+		if (!$state->is_resolvable()) {
 			self::log('notice', 'BCI callback cannot resolve status because the order has no mdOrder.', [
 				'order_id' => $order->get_id(),
 			]);
@@ -267,7 +269,7 @@ final class Callback {
 		}
 
 		if ($order_number !== '') {
-			$order = self::find_order_by_meta(self::META_ORDER_NUMBER, $order_number);
+			$order = Order_State::find_by_order_number($order_number);
 			if ($order) {
 				return $order;
 			}
@@ -283,31 +285,10 @@ final class Callback {
 		}
 
 		if ($md_order !== '') {
-			return self::find_order_by_meta(self::META_MD_ORDER, $md_order);
+			return Order_State::find_by_md_order($md_order);
 		}
 
 		return null;
-	}
-
-	private static function find_order_by_meta(string $meta_key, string $meta_value): ?\WC_Order {
-		$orders = wc_get_orders([
-			'limit'      => 1,
-			'return'     => 'objects',
-			'type'       => 'shop_order',
-			'orderby'    => 'date',
-			'order'      => 'DESC',
-			'meta_query' => [
-				[
-					'key'     => $meta_key,
-					'value'   => $meta_value,
-					'compare' => '=',
-				],
-			],
-		]);
-
-		$order = $orders[0] ?? null;
-
-		return $order instanceof \WC_Order ? $order : null;
 	}
 
 	private static function parse_order_id(string $order_number): int {
@@ -327,9 +308,11 @@ final class Callback {
 	}
 
 	private static function is_bci_order(\WC_Order $order): bool {
+		$state = Order_State::for($order);
+
 		return $order->get_payment_method() === self::gateway_id()
-			|| (string) $order->get_meta(self::META_ORDER_NUMBER) !== ''
-			|| (string) $order->get_meta(self::META_MD_ORDER) !== '';
+			|| $state->order_number() !== ''
+			|| $state->is_resolvable();
 	}
 
 	private static function should_resolve(\WC_Order $order): bool {

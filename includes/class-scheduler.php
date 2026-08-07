@@ -7,6 +7,10 @@ if (!defined('ABSPATH')) {
 	exit;
 }
 
+if (!class_exists(__NAMESPACE__ . '\Order_State') && is_readable(__DIR__ . '/class-order-state.php')) {
+	require_once __DIR__ . '/class-order-state.php';
+}
+
 final class Scheduler {
 	public const HOOK = 'bci_woo_check_pending_orders';
 	public const GROUP = 'bci-woo';
@@ -14,9 +18,6 @@ final class Scheduler {
 	public const PENDING_THRESHOLD_MINUTES = 10;
 	public const FAILED_LOOKBACK_MINUTES = 60;
 	public const CANCELLATION_HOLD_MAX_MINUTES = 1440;
-
-	private const META_MD_ORDER = '_bci_woo_md_order';
-	private const META_LAST_STATUS = '_bci_woo_last_status';
 
 	/**
 	 * Register the Action Scheduler hook and recurring action.
@@ -102,7 +103,7 @@ final class Scheduler {
 				continue;
 			}
 
-			if ((string) $order->get_meta(self::META_MD_ORDER) === '') {
+			if (!Order_State::for($order)->is_resolvable()) {
 				continue;
 			}
 
@@ -145,7 +146,7 @@ final class Scheduler {
 		}
 
 		if ($order->get_payment_method() !== self::gateway_id()
-			|| (string) $order->get_meta(self::META_MD_ORDER) === ''
+			|| !Order_State::for($order)->is_resolvable()
 		) {
 			return $cancel;
 		}
@@ -167,7 +168,7 @@ final class Scheduler {
 			return false;
 		}
 
-		$gateway_status = (int) $order->get_meta(self::META_LAST_STATUS);
+		$gateway_status = Order_State::for($order)->last_status();
 		if ($resolution === 'pending' && $gateway_status === (int) self::config_constant('STATUS_REGISTERED', 0)) {
 			// Registered with no payment attempt in flight: the customer abandoned
 			// the hosted form. Cancelling is safe, and a late callback can still
@@ -209,10 +210,7 @@ final class Scheduler {
 			'type'           => 'shop_order',
 			'payment_method' => self::gateway_id(),
 			'meta_query'     => [
-				[
-					'key'     => self::META_MD_ORDER,
-					'compare' => 'EXISTS',
-				],
+				Order_State::gateway_reference_query(),
 			],
 		], $args));
 

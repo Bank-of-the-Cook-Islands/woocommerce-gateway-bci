@@ -256,8 +256,8 @@ namespace BCI\Woo {
     // statuses 1/5/7/8) must not be failed on the way past.
     [$order, $resolved] = apply_status(['errorCode' => '0', 'orderStatus' => 7]);
     assert_same(['pending'], $resolved, 'pending: resolved hook');
-    assert_same(7, $order->persisted[Config::META_LAST_STATUS] ?? null, 'pending: last status persisted');
-    assert_same(0, $order->persisted[Config::META_LAST_ACTION_CODE] ?? null, 'pending: last action code persisted');
+    assert_same(7, $order->persisted['_bci_woo_last_status'] ?? null, 'pending: last status persisted');
+    assert_same(0, $order->persisted['_bci_woo_last_action_code'] ?? null, 'pending: last action code persisted');
     assert_same('pending', $order->status, 'pending: order status untouched');
 
     [$order, $resolved] = apply_status(['errorCode' => '0', 'orderStatus' => 99]);
@@ -266,8 +266,8 @@ namespace BCI\Woo {
     // The gateway state recorded on the order is the integer the table read, not
     // a string: the two write the same meta keys and must agree on their type.
     [$order] = apply_status(['errorCode' => '0', 'orderStatus' => 6, 'actionCode' => 116]);
-    assert_same(6, $order->persisted[Config::META_LAST_STATUS] ?? null, 'declined: last status is an int');
-    assert_same(116, $order->persisted[Config::META_LAST_ACTION_CODE] ?? null, 'declined: last action code is an int');
+    assert_same(6, $order->persisted['_bci_woo_last_status'] ?? null, 'declined: last status is an int');
+    assert_same(116, $order->persisted['_bci_woo_last_action_code'] ?? null, 'declined: last action code is an int');
 
     // A payload fault is not a gateway state: nothing is recorded and nothing is
     // told that the payment resolved.

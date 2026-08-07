@@ -264,6 +264,11 @@ final class Status_Resolver
                 'environment' => (string) $order->get_meta(Config::META_ENVIRONMENT, true),
             ]);
         }
+
+        // mark_paid() has already saved the order, and Tokens only saves when its own
+        // change detection fires — which it cannot, because it compares against the
+        // meta staged just above. Persist the binding here so it never gets dropped.
+        $order->save();
     }
 
     private function extract_binding_id(array $status): string

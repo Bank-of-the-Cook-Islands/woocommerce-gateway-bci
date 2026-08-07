@@ -13,8 +13,10 @@ final class Scheduler {
 	public const INTERVAL_SECONDS = 300;
 	public const PENDING_THRESHOLD_MINUTES = 10;
 	public const FAILED_LOOKBACK_MINUTES = 60;
+	public const CANCELLATION_HOLD_MAX_MINUTES = 1440;
 
 	private const META_MD_ORDER = '_bci_woo_md_order';
+	private const META_LAST_STATUS = '_bci_woo_last_status';
 
 	/**
 	 * Register the Action Scheduler hook and recurring action.
@@ -23,6 +25,7 @@ final class Scheduler {
 		add_action(self::HOOK, [__CLASS__, 'check_pending_orders']);
 		add_action('init', [__CLASS__, 'schedule_recurring_action']);
 		add_action('action_scheduler_init', [__CLASS__, 'schedule_recurring_action']);
+		add_filter('woocommerce_cancel_unpaid_order', [__CLASS__, 'maybe_hold_unpaid_cancellation'], 10, 2);
 	}
 
 	/**
@@ -122,6 +125,82 @@ final class Scheduler {
 	 */
 	public static function checkPendingOrders(array $args = []): int {
 		return self::check_pending_orders($args);
+	}
+
+	/**
+	 * Do not let WooCommerce cancel an unpaid BCI order until the gateway has
+	 * confirmed that no payment was collected for it.
+	 *
+	 * Customers, typically guests, can complete payment on the hosted form after
+	 * the hold-stock window expires; cancelling without checking the gateway
+	 * would strand a paid order in Cancelled.
+	 *
+	 * @param mixed $cancel Whether WooCommerce intends to cancel the order.
+	 * @param mixed $order  The unpaid order under consideration.
+	 * @return mixed
+	 */
+	public static function maybe_hold_unpaid_cancellation($cancel, $order) {
+		if (!$cancel || !$order instanceof \WC_Order) {
+			return $cancel;
+		}
+
+		if ($order->get_payment_method() !== self::gateway_id()
+			|| (string) $order->get_meta(self::META_MD_ORDER) === ''
+		) {
+			return $cancel;
+		}
+
+		try {
+			$resolver   = self::make_status_resolver();
+			$resolution = (string) $resolver->resolve($order, 'unpaid order cancellation check');
+		} catch (\Throwable $exception) {
+			self::log('error', 'BCI status check before unpaid-order cancellation failed.', [
+				'order_id' => $order->get_id(),
+				'error'    => $exception->getMessage(),
+			]);
+
+			return self::past_cancellation_hold_limit($order) ? $cancel : false;
+		}
+
+		if (in_array($resolution, ['completed', 'refunded', 'cancelled', 'failed'], true)) {
+			// The resolver has already moved the order to its final state.
+			return false;
+		}
+
+		$gateway_status = (int) $order->get_meta(self::META_LAST_STATUS);
+		if ($resolution === 'pending' && $gateway_status === (int) self::config_constant('STATUS_REGISTERED', 0)) {
+			// Registered with no payment attempt in flight: the customer abandoned
+			// the hosted form. Cancelling is safe, and a late callback can still
+			// recover the order because Callback also resolves cancelled orders.
+			return $cancel;
+		}
+
+		// A payment attempt may be in flight (authorisation, 3-D Secure) or the
+		// gateway state is unclear. Hold the cancellation so a callback or the
+		// next cancellation run can settle it, but not indefinitely.
+		if (self::past_cancellation_hold_limit($order)) {
+			return $cancel;
+		}
+
+		self::log('info', 'BCI unpaid-order cancellation held until the gateway confirms the payment state.', [
+			'order_id'   => $order->get_id(),
+			'resolution' => $resolution,
+		]);
+
+		return false;
+	}
+
+	private static function past_cancellation_hold_limit(\WC_Order $order): bool {
+		$created   = $order->get_date_created();
+		$timestamp = $created ? (int) $created->getTimestamp() : 0;
+
+		if ($timestamp <= 0) {
+			return true;
+		}
+
+		$max_minutes = max(1, (int) self::config_constant('CANCELLATION_HOLD_MAX_MINUTES', self::CANCELLATION_HOLD_MAX_MINUTES));
+
+		return (time() - $timestamp) > $max_minutes * MINUTE_IN_SECONDS;
 	}
 
 	private static function query_orders(array $args): array {

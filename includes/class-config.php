@@ -27,6 +27,7 @@ final class Config
     public const SCHEDULER_INTERVAL_SECONDS = 300;
     public const PENDING_THRESHOLD_MINUTES = 10;
     public const FAILED_LOOKBACK_MINUTES = 60;
+    public const CANCELLATION_HOLD_MAX_MINUTES = 1440;
 
     public const META_MD_ORDER = '_bci_woo_md_order';
     public const META_ORDER_NUMBER = '_bci_woo_order_number';

@@ -1,0 +1,37 @@
+# gitleaks config for woocommerce-gateway-bci — secrets + PII (unmasked card PANs).
+# Used by the Secret Scan CI workflow (gitleaks git, full history). Adapted from
+# taka's config; this repo is a payment gateway, so the PAN rule matters here too.
+title = "woocommerce-gateway-bci secret + PII scan"
+
+[extend]
+useDefault = true   # keep all gitleaks default rules (keys, tokens, private keys, …)
+
+# --- PII: unmasked card PANs ------------------------------------------------
+[[rules]]
+id = "card-pan"
+description = "Unmasked card PAN (BCI BIN 553807, or 16-digit Visa/Mastercard)"
+regex = '''553807[0-9]{10}|\b[45][0-9]{15}\b'''
+tags = ["pii", "card"]
+
+  [rules.allowlist]
+  description = "Sanctioned placeholders, scheme test PANs, and masked numbers"
+  regexTarget = "match"
+  regexes = [
+    '''5538070000000000''',          # sanctioned doc/example placeholder
+    '''5555555555554444''',          # Mastercard test PAN
+    '''4111111111111111''',          # Visa test PAN
+    '''[0-9]{6}\*{4,}[0-9]{2,4}''',  # masked PANs (e.g. 553807******1234)
+  ]
+
+# --- global allowlist -------------------------------------------------------
+[allowlist]
+description = "Vendored BPC API reference docs: the vendor's own example PANs, sample RSA keys, and sample payment tokens. Vendor-import only — never paste real credentials there."
+paths = [
+  '''^docs/bpc/''',
+]
+
+# --- lesson inherited from taka ----------------------------------------------
+# `gitleaks git .` scans EVERY REF in the runner's clone, but reads its CONFIG
+# from the checked-out branch. An allowlist entry for a new fixture must reach
+# `main` before (or with) the branch that introduces the fixture, or every
+# concurrent PR's scan goes red on a required check.

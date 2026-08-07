@@ -53,6 +53,12 @@ namespace BCI\Woo {
         {
             return 'live';
         }
+
+        /** Masking is not conditional on the subscription setting. */
+        public static function subscriptions_enabled(): bool
+        {
+            return false;
+        }
     }
 
     require dirname(__DIR__) . '/includes/class-config.php';

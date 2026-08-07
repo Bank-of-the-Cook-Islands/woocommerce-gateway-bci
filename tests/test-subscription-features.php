@@ -12,12 +12,8 @@ namespace {
 }
 
 namespace BCI\Woo {
-    final class Tokens
-    {
-    }
-
-    require dirname(__DIR__) . '/includes/class-subscriptions.php';
-    require dirname(__DIR__) . '/includes/class-api.php';
+    require_once dirname(__DIR__) . '/includes/class-tokens.php';
+    require_once dirname(__DIR__) . '/includes/class-api.php';
 
     /**
      * @param mixed $existing
@@ -25,9 +21,9 @@ namespace BCI\Woo {
      */
     function ensure_feature($existing, string $feature)
     {
-        $subscriptions = (new \ReflectionClass(Subscriptions::class))->newInstanceWithoutConstructor();
-        $method = new \ReflectionMethod(Subscriptions::class, 'ensure_feature');
-        return $method->invoke($subscriptions, $existing, $feature);
+        $tokens = (new \ReflectionClass(Tokens::class))->newInstanceWithoutConstructor();
+        $method = new \ReflectionMethod(Tokens::class, 'ensure_feature');
+        return $method->invoke($tokens, $existing, $feature);
     }
 
     function form_encode(array $body): string

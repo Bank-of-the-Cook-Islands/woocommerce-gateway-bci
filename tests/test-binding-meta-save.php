@@ -147,6 +147,12 @@ namespace BCI\Woo {
         {
             return $default;
         }
+
+        /** Subscriptions stay off here: binding meta is saved either way. */
+        public static function subscriptions_enabled(): bool
+        {
+            return false;
+        }
     }
 
     require dirname(__DIR__) . '/includes/class-config.php';

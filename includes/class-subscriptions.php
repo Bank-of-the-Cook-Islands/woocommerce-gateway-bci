@@ -2,6 +2,18 @@
 /**
  * WooCommerce Subscriptions integration for BCI TakuEcom.
  *
+ * Two jobs, and nothing else: answering what WooCommerce Subscriptions says
+ * about an order, and wiring the subscription hooks up when the merchant has
+ * turned the feature on. The stored-credential work those hooks do lives in
+ * Tokens, so there is one copy of it and one place that knows how a binding is
+ * requested, captured and filed.
+ *
+ * The enable_subscriptions setting is answered here in register_hooks(), and at
+ * the gateway's two registration sites. Every callback below runs only because
+ * that answer was yes, so none of them ask again: the only place left that reads
+ * the setting outside registration is the saved-card gate in Tokens, which runs
+ * on one-off payments too and so is not behind any of these.
+ *
  * @package BCI\Woo
  */
 
@@ -43,29 +55,15 @@ final class Subscriptions {
 		$this->tokens  = $tokens ?: new Tokens($this->gateway_id());
 	}
 
-	public static function register(): void {
-		(new self())->register_hooks();
-	}
-
-	public static function gateway_supports(array $supports): array {
-		return (new self())->merge_supports($supports);
-	}
-
-	public static function order_contains_subscription($order): bool {
-		return (new self())->order_contains_subscription_instance($order);
-	}
-
-	public function contains_subscription($order): bool {
-		return $this->order_contains_subscription_instance($order);
-	}
-
+	/**
+	 * Wires the subscription hooks, if the merchant has enabled subscriptions.
+	 */
 	public function register_hooks(): void {
-		if (!$this->subscriptions_enabled()) {
+		if (!Api::subscriptions_enabled()) {
 			return;
 		}
 
 		if (\function_exists('add_filter')) {
-			add_filter('bci_woo_gateway_supports', [$this, 'filter_gateway_supports']);
 			add_filter('bci_woo_register_payment_params', [$this, 'filter_register_payment_params'], 10, 2);
 		}
 
@@ -75,30 +73,13 @@ final class Subscriptions {
 		}
 	}
 
-	public function add_gateway_supports($gateway = null): void {
-		$gateway = is_object($gateway) ? $gateway : $this->gateway;
-
-		if (!is_object($gateway)) {
-			return;
-		}
-
-		$supports = [];
-		if (isset($gateway->supports) && is_array($gateway->supports)) {
-			$supports = $gateway->supports;
-		}
-
-		$gateway->supports = $this->merge_supports($supports);
-	}
-
-	public function filter_gateway_supports(array $supports): array {
-		return $this->merge_supports($supports);
-	}
-
+	/**
+	 * The gateway supports a subscription store adds to its own.
+	 *
+	 * Called from the gateway constructor only when the gate is open, so the
+	 * supports are advertised exactly when the hooks that honour them exist.
+	 */
 	public function merge_supports(array $supports): array {
-		if (!$this->subscriptions_enabled()) {
-			return array_values($supports);
-		}
-
 		foreach (self::SUPPORTS as $support) {
 			if (!in_array($support, $supports, true)) {
 				$supports[] = $support;
@@ -108,51 +89,23 @@ final class Subscriptions {
 		return array_values($supports);
 	}
 
-	public function filter_register_payment_params(array $params, $order): array {
-		return $this->maybe_add_subscription_registration_params($params, $order);
-	}
-
 	/**
-	 * Adds BPC stored-credential registration fields for initial subscription checkout.
+	 * Asks BPC to create a stored credential for an initial subscription checkout.
 	 *
 	 * @param array              $params Register-payment parameters.
 	 * @param \WC_Order|int|null $order  WooCommerce order or order ID.
 	 */
-	public function maybe_add_subscription_registration_params(array $params, $order): array {
-		if (!$this->subscriptions_enabled()) {
-			return $params;
-		}
-
+	public function filter_register_payment_params(array $params, $order): array {
 		$order = $this->maybe_order($order);
 
-		if (!$order || !$this->order_contains_subscription_instance($order)) {
+		if (!$order || !$this->contains_subscription($order)) {
 			return $params;
 		}
 
-		$client_id = $this->clean($params['clientId'] ?? '');
-		if ($client_id === '') {
-			$client_id = $this->tokens->client_id_for_order($order);
-		}
-
-		$params['clientId'] = $client_id;
-		$params['features'] = $this->ensure_feature($params['features'] ?? '', 'FORCE_CREATE_BINDING');
-
-		Order_State::for($order)->record_client_id($client_id)->save();
-
-		foreach ($this->tokens->related_subscriptions_for_order($order) as $subscription) {
-			$this->tokens->store_subscription_token_data($subscription, [
-				'client_id' => $client_id,
-			]);
-		}
-
-		return $params;
+		return $this->tokens->add_binding_params($params, $order);
 	}
 
 	public function capture_binding_after_status($order, $resolution = '', $status = []): void {
-		if (!$this->subscriptions_enabled()) {
-			return;
-		}
-
 		$order = $this->maybe_order($order);
 
 		if (!$order || !is_array($status) || $status === []) {
@@ -163,43 +116,17 @@ final class Subscriptions {
 			return;
 		}
 
-		$this->capture_binding_from_status($order, $status);
-	}
-
-	public function capture_binding_from_status($order, array $status): bool {
-		$order = $this->maybe_order($order);
-
-		if (!$order || !$this->order_contains_subscription_instance($order)) {
-			return false;
+		if (!$this->contains_subscription($order)) {
+			return;
 		}
 
-		$state     = Order_State::for($order);
-		$client_id = $state->client_id();
-		if ($client_id === '') {
-			$client_id = $this->tokens->client_id_for_order($order);
-		}
-
-		$token_data = $this->tokens->token_data_from_status($status, $client_id);
-		if ($state->has_environment()) {
-			$token_data['environment'] = $state->environment();
-		}
-
-		if ($token_data['binding_id'] === '') {
-			$this->maybe_note_missing_binding($order);
-			return false;
-		}
-
-		return $this->tokens->store_order_token_data($order, $token_data);
+		$this->tokens->capture_binding_from_status($order, $status);
 	}
 
 	public function capture_binding_from_callback($order, $params): bool {
-		if (!$this->subscriptions_enabled()) {
-			return false;
-		}
-
 		$order = $this->maybe_order($order);
 
-		if (!$order || !is_array($params) || !$this->order_contains_subscription_instance($order)) {
+		if (!$order || !is_array($params) || !$this->contains_subscription($order)) {
 			return false;
 		}
 
@@ -210,38 +137,7 @@ final class Subscriptions {
 		);
 	}
 
-	public function cart_contains_subscription(): bool {
-		if (\function_exists('wcs_cart_contains_subscription')) {
-			try {
-				return (bool) wcs_cart_contains_subscription();
-			} catch (\Throwable $e) {
-				// Continue to slower fallbacks.
-			}
-		}
-
-		if (\class_exists('\WC_Subscriptions_Cart') && \method_exists('\WC_Subscriptions_Cart', 'cart_contains_subscription')) {
-			try {
-				return (bool) \WC_Subscriptions_Cart::cart_contains_subscription();
-			} catch (\Throwable $e) {
-				// Continue to product-type fallback.
-			}
-		}
-
-		if (!\function_exists('WC') || !WC() || !isset(WC()->cart) || !method_exists(WC()->cart, 'get_cart')) {
-			return false;
-		}
-
-		foreach ((array) WC()->cart->get_cart() as $cart_item) {
-			$product = $cart_item['data'] ?? null;
-			if ($this->product_is_subscription($product)) {
-				return true;
-			}
-		}
-
-		return false;
-	}
-
-	private function order_contains_subscription_instance($order): bool {
+	public function contains_subscription($order): bool {
 		$order = $this->maybe_order($order);
 		if (!$order) {
 			return false;
@@ -353,65 +249,6 @@ final class Subscriptions {
 		return null;
 	}
 
-	private function maybe_note_missing_binding(\WC_Order $order): void {
-		$state = Order_State::for($order);
-
-		if ($state->binding_missing_noted()) {
-			return;
-		}
-
-		$message = __(
-			'BCI TakuEcom could not store a card for future subscription renewals. The initial payment may be complete, but automatic renewals will fail until stored credential permission is enabled for this merchant account.',
-			'bci-woo'
-		);
-
-		if (method_exists($order, 'add_order_note')) {
-			$order->add_order_note($message);
-		}
-
-		$state->note_binding_missing()->save();
-
-		$this->log('notice', 'BCI subscription payment completed without a binding ID.', [
-			'order_id' => $order->get_id(),
-		]);
-	}
-
-	/**
-	 * Merges a feature into an existing features value.
-	 *
-	 * BPC takes each feature as its own `features` parameter, repeated within the
-	 * one request, so several features are returned as a list and Api encodes
-	 * them as features=A&features=B. A comma-joined string would instead reach
-	 * the gateway as a single unrecognised feature name, which either drops
-	 * FORCE_CREATE_BINDING or fails register.do validation, so it is never
-	 * produced here.
-	 *
-	 * @param mixed $existing Existing features value (string or array).
-	 * @return string|string[] A single feature as a string, several as a list.
-	 */
-	private function ensure_feature($existing, string $feature) {
-		$features = [];
-
-		foreach (is_array($existing) ? $existing : [$existing] as $value) {
-			$value = $this->clean($value);
-			if ($value === '') {
-				continue;
-			}
-
-			foreach (preg_split('/[\s,]+/', $value) ?: [] as $part) {
-				if ($part !== '' && !in_array($part, $features, true)) {
-					$features[] = $part;
-				}
-			}
-		}
-
-		if (!in_array($feature, $features, true)) {
-			$features[] = $feature;
-		}
-
-		return count($features) === 1 ? $features[0] : $features;
-	}
-
 	private function product_is_subscription($product): bool {
 		if (!is_object($product) || !method_exists($product, 'is_type')) {
 			return false;
@@ -439,19 +276,6 @@ final class Subscriptions {
 		return null;
 	}
 
-	private function subscriptions_enabled(): bool {
-		if (\class_exists(Api::class) && \is_callable([Api::class, 'subscriptions_enabled'])) {
-			return Api::subscriptions_enabled();
-		}
-
-		if (\function_exists('get_option')) {
-			$settings = get_option('woocommerce_' . $this->gateway_id() . '_settings', []);
-			return is_array($settings) && (($settings['enable_subscriptions'] ?? 'no') === 'yes');
-		}
-
-		return false;
-	}
-
 	private function gateway_id(): string {
 		if (is_object($this->gateway) && isset($this->gateway->id) && $this->gateway->id !== '') {
 			return (string) $this->gateway->id;
@@ -462,31 +286,5 @@ final class Subscriptions {
 		}
 
 		return 'bci_takuecom';
-	}
-
-	private function clean($value): string {
-		if (is_array($value) || is_object($value)) {
-			return '';
-		}
-
-		$value = trim((string) $value);
-
-		if (\function_exists('sanitize_text_field')) {
-			return sanitize_text_field($value);
-		}
-
-		return trim(strip_tags($value));
-	}
-
-	private function log(string $level, string $message, array $context = []): void {
-		if (!\class_exists(Log::class) || !\method_exists(Log::class, $level)) {
-			return;
-		}
-
-		try {
-			\call_user_func([Log::class, $level], $message, $context);
-		} catch (\Throwable $e) {
-			// Logging must never interrupt checkout.
-		}
 	}
 }

@@ -24,6 +24,9 @@ final class Gateway extends \WC_Payment_Gateway
         $this->method_description = __('Accept card payments through BCI TakuEcom.', Config::TEXT_DOMAIN);
         $this->supports = ['products'];
 
+        // Subscription behaviour is decided here and at the two other registration
+        // sites (the renewal hooks below, and Subscriptions::register_hooks()). What
+        // gets registered while the setting is on is not asked to re-check it later.
         if (Api::subscriptions_enabled() && class_exists(__NAMESPACE__ . '\Subscriptions')) {
             $this->supports = (new Subscriptions($this))->merge_supports($this->supports);
         }
@@ -484,28 +487,15 @@ final class Gateway extends \WC_Payment_Gateway
             $params['billingPayerData'] = wp_json_encode($billing);
         }
 
-        if ($this->order_contains_subscription($order)) {
-            $client_id = $this->client_id_for_order($order);
-            $params['clientId'] = $client_id;
-            $params['features'] = 'FORCE_CREATE_BINDING';
-        }
-
+        // Stored-credential fields are added by Subscriptions off this filter, which is
+        // hooked only when the merchant has enabled subscriptions. Adding them here too
+        // would be a second copy of the clientId and FORCE_CREATE_BINDING rules, and a
+        // second answer to whether this order wants a binding at all.
         if (function_exists('apply_filters')) {
             $params = apply_filters('bci_woo_register_payment_params', $params, $order);
         }
 
         return $params;
-    }
-
-    public function client_id_for_order(\WC_Order $order): string
-    {
-        $customer_id = (int) $order->get_customer_id();
-        if ($customer_id > 0) {
-            return 'wc_customer_' . $customer_id;
-        }
-
-        $email = strtolower((string) $order->get_billing_email());
-        return 'wc_guest_' . substr(hash('sha256', $email . '|' . home_url()), 0, 24);
     }
 
     public function amount_to_minor_units($amount): int
@@ -536,19 +526,6 @@ final class Gateway extends \WC_Payment_Gateway
         }
 
         return substr($description, 0, 598);
-    }
-
-    private function order_contains_subscription(\WC_Order $order): bool
-    {
-        if (!Api::subscriptions_enabled()) {
-            return false;
-        }
-
-        if (class_exists(__NAMESPACE__ . '\Subscriptions')) {
-            return (new Subscriptions($this))->contains_subscription($order);
-        }
-
-        return function_exists('wcs_order_contains_subscription') && wcs_order_contains_subscription($order);
     }
 
     private function billing_payer_data(\WC_Order $order): array

@@ -45,22 +45,14 @@ final class Renewals {
 		$this->subscriptions = $subscriptions ?: new Subscriptions($this->gateway, $this->tokens);
 	}
 
-	public static function register_gateway_hooks($gateway): void {
-		if (is_object($gateway) && is_callable([$gateway, 'get_option'])) {
-			$enabled = (string) $gateway->get_option('enable_subscriptions', 'no');
-			if ($enabled !== 'yes') {
-				return;
-			}
-		}
-
-		(new self($gateway))->register_hooks();
-	}
-
+	/**
+	 * Registers the renewal hook.
+	 *
+	 * Called from the gateway constructor only when subscriptions are enabled, so
+	 * the setting is not consulted again here or on the renewal path: a renewal
+	 * charges what the subscription recorded when it was set up.
+	 */
 	public function register_hooks(): void {
-		if (!$this->subscriptions_enabled()) {
-			return;
-		}
-
 		if (!\function_exists('add_action')) {
 			return;
 		}
@@ -402,23 +394,6 @@ final class Renewals {
 		}
 
 		return null;
-	}
-
-	private function subscriptions_enabled(): bool {
-		if (is_object($this->gateway) && is_callable([$this->gateway, 'get_option'])) {
-			return (string) $this->gateway->get_option('enable_subscriptions', 'no') === 'yes';
-		}
-
-		if (\class_exists(Api::class) && \is_callable([Api::class, 'subscriptions_enabled'])) {
-			return Api::subscriptions_enabled();
-		}
-
-		if (\function_exists('get_option')) {
-			$settings = get_option('woocommerce_' . $this->gateway_id() . '_settings', []);
-			return is_array($settings) && (($settings['enable_subscriptions'] ?? 'no') === 'yes');
-		}
-
-		return false;
 	}
 
 	private function gateway_id(): string {

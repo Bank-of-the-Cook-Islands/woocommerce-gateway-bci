@@ -13,6 +13,10 @@ if (!class_exists(__NAMESPACE__ . '\Order_State') && is_readable(__DIR__ . '/cla
 	require_once __DIR__ . '/class-order-state.php';
 }
 
+if (!class_exists(__NAMESPACE__ . '\Api') && is_readable(__DIR__ . '/class-api.php')) {
+	require_once __DIR__ . '/class-api.php';
+}
+
 final class Tokens {
 	/** @var string */
 	private $gateway_id;
@@ -31,6 +35,36 @@ final class Tokens {
 		}
 
 		return 'bci_takuecom';
+	}
+
+	/**
+	 * Adds the BPC stored-credential fields to a register.do request.
+	 *
+	 * This is the only place the clientId and FORCE_CREATE_BINDING pair is built.
+	 * The clientId is recorded on the order, and on the subscriptions it backs, as
+	 * it is sent: the binding that comes back later belongs to whichever clientId
+	 * was actually registered, and a renewal has nothing else to charge against.
+	 *
+	 * The caller decides whether the order wants a stored credential at all.
+	 */
+	public function add_binding_params(array $params, \WC_Order $order): array {
+		$client_id = $this->clean($params['clientId'] ?? '');
+		if ($client_id === '') {
+			$client_id = $this->client_id_for_order($order);
+		}
+
+		$params['clientId'] = $client_id;
+		$params['features'] = $this->ensure_feature($params['features'] ?? '', 'FORCE_CREATE_BINDING');
+
+		Order_State::for($order)->record_client_id($client_id)->save();
+
+		foreach ($this->related_subscriptions_for_order($order) as $subscription) {
+			$this->store_subscription_token_data($subscription, [
+				'client_id' => $client_id,
+			]);
+		}
+
+		return $params;
 	}
 
 	public function client_id_for_order(\WC_Order $order): string {
@@ -60,6 +94,38 @@ final class Tokens {
 		$token_data = $this->token_data_from_status($params, $fallback_client_id);
 
 		if ($token_data['binding_id'] === '' && $token_data['client_id'] === '') {
+			return false;
+		}
+
+		return $this->store_order_token_data($order, $token_data);
+	}
+
+	/**
+	 * Captures the stored credential a subscription order's status came back with.
+	 *
+	 * The clientId comes from what the order recorded when it was registered, so
+	 * the credential is filed against the identity the binding was created for
+	 * even when the gateway answers without one. Only an environment the order
+	 * actually recorded is carried onto the credential; the plugin's current
+	 * setting is never stamped onto an older order.
+	 *
+	 * A completed subscription payment that carries no binding is the merchant
+	 * permission failure, not a payment failure, so it is noted on the order once.
+	 */
+	public function capture_binding_from_status(\WC_Order $order, array $status): bool {
+		$state     = Order_State::for($order);
+		$client_id = $state->client_id();
+		if ($client_id === '') {
+			$client_id = $this->client_id_for_order($order);
+		}
+
+		$token_data = $this->token_data_from_status($status, $client_id);
+		if ($state->has_environment()) {
+			$token_data['environment'] = $state->environment();
+		}
+
+		if ($token_data['binding_id'] === '') {
+			$this->note_binding_missing($order);
 			return false;
 		}
 
@@ -208,8 +274,10 @@ final class Tokens {
 	private function maybe_create_payment_token(\WC_Order $order, Order_State $state, array $token_data): int {
 		// Saved cards belong to the experimental subscriptions feature. While it is off the
 		// gateway does not declare tokenisation support, so a token would be unusable at
-		// checkout and would surface an unconsented card under My Account.
-		if (!$this->subscriptions_enabled()) {
+		// checkout and would surface an unconsented card under My Account. Unlike the
+		// registration hooks, this runs on every one-off payment that comes back with
+		// binding data, so it is the gate itself rather than a re-check behind one.
+		if (!Api::subscriptions_enabled()) {
 			return 0;
 		}
 
@@ -258,17 +326,63 @@ final class Tokens {
 		}
 	}
 
-	private function subscriptions_enabled(): bool {
-		if (\class_exists(Api::class) && \is_callable([Api::class, 'subscriptions_enabled'])) {
-			return Api::subscriptions_enabled();
+	private function note_binding_missing(\WC_Order $order): void {
+		$state = Order_State::for($order);
+
+		if ($state->binding_missing_noted()) {
+			return;
 		}
 
-		if (\function_exists('get_option')) {
-			$settings = get_option('woocommerce_' . $this->gateway_id . '_settings', []);
-			return is_array($settings) && (($settings['enable_subscriptions'] ?? 'no') === 'yes');
+		$message = __(
+			'BCI TakuEcom could not store a card for future subscription renewals. The initial payment may be complete, but automatic renewals will fail until stored credential permission is enabled for this merchant account.',
+			'bci-woo'
+		);
+
+		if (method_exists($order, 'add_order_note')) {
+			$order->add_order_note($message);
 		}
 
-		return false;
+		$state->note_binding_missing()->save();
+
+		$this->log('notice', 'BCI subscription payment completed without a binding ID.', [
+			'order_id' => $order->get_id(),
+		]);
+	}
+
+	/**
+	 * Merges a feature into an existing features value.
+	 *
+	 * BPC takes each feature as its own `features` parameter, repeated within the
+	 * one request, so several features are returned as a list and Api encodes
+	 * them as features=A&features=B. A comma-joined string would instead reach
+	 * the gateway as a single unrecognised feature name, which either drops
+	 * FORCE_CREATE_BINDING or fails register.do validation, so it is never
+	 * produced here.
+	 *
+	 * @param mixed $existing Existing features value (string or array).
+	 * @return string|string[] A single feature as a string, several as a list.
+	 */
+	private function ensure_feature($existing, string $feature) {
+		$features = [];
+
+		foreach (is_array($existing) ? $existing : [$existing] as $value) {
+			$value = $this->clean($value);
+			if ($value === '') {
+				continue;
+			}
+
+			foreach (preg_split('/[\s,]+/', $value) ?: [] as $part) {
+				if ($part !== '' && !in_array($part, $features, true)) {
+					$features[] = $part;
+				}
+			}
+		}
+
+		if (!in_array($feature, $features, true)) {
+			$features[] = $feature;
+		}
+
+		return count($features) === 1 ? $features[0] : $features;
 	}
 
 	private function first_value(array $source, array $paths, string $fallback = ''): string {

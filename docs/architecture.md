@@ -390,13 +390,17 @@ enable_subscriptions = yes
 
 The default is `no`.
 
+The setting is read at three registration sites — the gateway constructor, for gateway supports and for the renewal hook, and `Subscriptions::register_hooks()` — plus the saved-card gate in `Tokens`, which one-off payments reach as well and so cannot key off subscription registration. Nothing registered while the gate was open re-reads the setting afterwards, so the gate has one answer per request.
+
 When disabled:
 
 - The gateway only advertises product support.
 - WooCommerce Subscriptions supports are not merged into the gateway.
 - Renewal hooks are not registered.
-- Initial checkout does not send `clientId` or `FORCE_CREATE_BINDING`.
-- Binding capture hooks return without storing subscription token data.
+- The register-parameter and binding capture hooks are not registered, so initial checkout does not send `clientId` or `FORCE_CREATE_BINDING`, and no subscription token data is stored.
+- A one-off payment that returns binding data still records it in order meta, but no WooCommerce payment token is created for the customer.
+
+`Subscriptions` answers what WooCommerce Subscriptions says about an order and registers the hooks. The stored credential itself — building the `clientId` and `FORCE_CREATE_BINDING` pair, capturing the binding, and propagating it to subscriptions and to WooCommerce payment tokens — belongs to `Tokens`.
 
 When explicitly enabled, subscription checkout attempts to create a BPC stored credential, stores returned binding metadata, and charges renewal orders through `recurrentPayment.do`. This path is not delivered as production scope for v1.0.0.
 

@@ -1,0 +1,49 @@
+# CI — lint and tests on every pull request.
+#
+# The PHP checks run inside a throwaway image that COPYs the source in. They
+# must NOT bind-mount the workspace: the runner is itself a container, so
+# "$PWD" is not a path the docker daemon can resolve and the mount lands empty
+# (taka's CI hit exactly this — a syntax check that passed while linting
+# nothing). Anything that needs the repo goes through a build context.
+
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+
+# Cancel an in-flight run when a new commit is pushed to the same PR — only the
+# tip of each branch needs validating.
+concurrency:
+  group: ci-${{ github.head_ref }}
+  cancel-in-progress: true
+
+jobs:
+  php:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build PHP check image
+        run: |
+          printf 'FROM php:8.3-cli-bookworm\nWORKDIR /app\nCOPY . /app\n' > /tmp/php-check.Dockerfile
+          docker build -t wc-bci-php:ci-test -f /tmp/php-check.Dockerfile .
+
+      # bash -euo pipefail, not sh: a mistyped path makes `find` fail the step
+      # instead of feeding xargs nothing and reporting success.
+      - name: Lint (php -l, every PHP file)
+        run: |
+          docker run --rm wc-bci-php:ci-test bash -euo pipefail -c '
+            find . -name "*.php" -print0 | xargs -0 -n1 php -l > /dev/null'
+
+      # tests/ holds only self-contained standalone scripts (no PHPUnit, no
+      # database, no vendor/) that throw an uncaught exception on failure, so
+      # the glob is safe — every new test file runs automatically. Keep it that
+      # way: a test that needs external state belongs elsewhere.
+      - name: Run tests
+        run: |
+          docker run --rm wc-bci-php:ci-test bash -euo pipefail -c '
+            for t in tests/test-*.php; do
+              echo "== $t"
+              php "$t"
+            done'

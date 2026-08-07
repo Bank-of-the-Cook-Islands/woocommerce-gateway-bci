@@ -291,6 +291,8 @@ The callback signature check removes `checksum` and `sign_alias`, sorts remainin
 
 Both live and sandbox callback tokens are accepted because BPC callbacks do not always include a reliable environment marker.
 
+BPC computes the checksum over exactly the parameters it sends, so a query variable appended to the callback request by the store's own stack (security plugin, WAF token, tracking variable) would break the digest. If verification against the full parameter set fails, the handler retries against only the BPC-documented callback parameters and logs which foreign parameters were ignored. Both digests use the shared HMAC token, so the retry does not weaken authentication.
+
 ## Status Resolution
 
 `Status_Resolver` is shared by browser return, callbacks, scheduled checks, manual recovery, and renewals.

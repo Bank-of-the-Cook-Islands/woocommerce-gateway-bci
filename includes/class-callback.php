@@ -12,6 +12,34 @@ final class Callback {
 	private const META_ORDER_NUMBER = '_bci_woo_order_number';
 
 	/**
+	 * Lower-cased names of every parameter BPC is documented to send in
+	 * callback notifications (docs/bpc/api-reference/17-callback-notifications.md).
+	 * Used to ignore query variables injected by the store's own stack.
+	 */
+	private const BPC_CALLBACK_PARAMS = [
+		'actioncode', 'actioncodedescription', 'amount', 'amountformatted',
+		'approvalcode', 'approvedamount', 'approvedamountformatted', 'authcode',
+		'authvalue', 'avscode', 'bankname', 'bindingid', 'callbackcreationdate',
+		'cardholdername', 'cavv', 'checksum', 'clientid', 'creditbankname',
+		'creditpancountrycode', 'currency', 'currencyname',
+		'currentrefundamountformatted', 'currentreverseamountformatted', 'date',
+		'debitbankname', 'debitpancountrycode', 'declinedate', 'depositedamount',
+		'depositedamountformatted', 'depositeddate', 'depositedtotalamountformatted',
+		'depositflag', 'eci', 'email', 'enabled', 'externalrefundid', 'feeamount',
+		'finishcheckurl', 'ip', 'ipcountrycode', 'isinternationalp2p', 'maskedpan',
+		'mdorder', 'merchantfullname', 'merchantlogin', 'operation',
+		'operationrefundedamount', 'operationrefundedamountformatted',
+		'operationtype', 'orderdescription', 'orderid', 'ordernumber',
+		'p2pdebitrrn', 'pancountrycode', 'panmasked', 'paymentamount',
+		'paymentdate', 'paymentrefnum', 'paymentstate', 'paymentsystem',
+		'paymentway', 'phone', 'processingid', 'recipientdata', 'refnum',
+		'refundedamount', 'refundedamountformatted', 'refundeddate',
+		'reverseddate', 'sessionexpireddate', 'sign_alias', 'status',
+		'terminalid', 'threedstype', 'tokenizecryptogram',
+		'transactionattributes', 'transactiontypeindicator', 'xid',
+	];
+
+	/**
 	 * Register the BCI callback REST endpoint.
 	 */
 	public static function register(): void {
@@ -154,7 +182,35 @@ final class Callback {
 			}
 		}
 
+		// The checksum covers exactly the parameters BPC sent, so anything the
+		// store's own stack appends to the callback request (security plugin,
+		// WAF token, tracking variable) breaks the digest. Retry against the
+		// BPC-documented parameters only.
+		$known = self::known_bpc_params($params);
+		if (count($known) === count($params)) {
+			return false;
+		}
+
+		foreach ($tokens as $token) {
+			if (self::verify_checksum($known, $token)) {
+				self::log('info', 'BCI callback checksum verified after ignoring non-BPC parameters.', [
+					'ignored' => implode(', ', array_map('strval', array_keys(array_diff_key($params, $known)))),
+				]);
+				return true;
+			}
+		}
+
 		return false;
+	}
+
+	private static function known_bpc_params(array $params): array {
+		foreach (array_keys($params) as $key) {
+			if (!in_array(strtolower((string) $key), self::BPC_CALLBACK_PARAMS, true)) {
+				unset($params[$key]);
+			}
+		}
+
+		return $params;
 	}
 
 	/**

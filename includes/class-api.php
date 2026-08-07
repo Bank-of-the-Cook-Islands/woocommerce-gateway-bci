@@ -204,6 +204,37 @@ final class Api
     }
 
     /**
+     * Form-encodes a request body, repeating the key once per value of an array.
+     *
+     * BPC expresses a multi-valued parameter — `features` is the only one this
+     * plugin sends — by repeating it in the same request (features=FORCE_TDS
+     * &features=FORCE_CREATE_BINDING). Handing wp_remote_post() an array body
+     * would instead produce features[0]=…&features[1]=…, which the gateway does
+     * not recognise, and a comma-joined string would be read as one unknown
+     * feature name, so the body is encoded here instead.
+     */
+    private static function form_encode(array $body): string
+    {
+        $pairs = [];
+
+        foreach ($body as $key => $value) {
+            foreach (is_array($value) ? $value : [$value] as $item) {
+                if ($item === null) {
+                    continue;
+                }
+
+                if (is_bool($item)) {
+                    $item = $item ? '1' : '0';
+                }
+
+                $pairs[] = urlencode((string) $key) . '=' . urlencode((string) $item);
+            }
+        }
+
+        return implode('&', $pairs);
+    }
+
+    /**
      * @return array|\WP_Error
      */
     private function post_json(string $url, array $params, string $environment)
@@ -232,7 +263,7 @@ final class Api
 
         $response = wp_remote_post($url, [
             'headers' => $headers,
-            'body' => $json ? wp_json_encode($body) : $body,
+            'body' => $json ? wp_json_encode($body) : self::form_encode($body),
             'timeout' => Config::API_TIMEOUT,
         ]);
 

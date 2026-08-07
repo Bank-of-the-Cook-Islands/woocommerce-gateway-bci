@@ -279,7 +279,7 @@ The callback handler:
 - Verifies the HMAC-SHA256 checksum against configured live and sandbox callback tokens.
 - Finds the order by stored order number, parsed WooCommerce order ID, or stored `mdOrder`.
 - Rejects mismatched `mdOrder` values.
-- Ignores terminal orders where no resolution is needed.
+- Ignores terminal orders where no resolution is needed. Cancelled orders remain resolvable so a late Deposited callback can recover a payment completed after WooCommerce auto-cancelled the unpaid order.
 - Fires `bci_woo_callback_received`.
 - Resolves the latest status through `Status_Resolver`.
 
@@ -323,6 +323,18 @@ The scheduler checks:
 Only orders with a stored BPC `mdOrder` are resolved. This prevents unrelated failed or pending WooCommerce orders from being touched.
 
 The same recovery logic is available through the admin manual "Check Pending Orders" button.
+
+## Unpaid Order Cancellation Hold
+
+WooCommerce auto-cancels unpaid pending orders once the hold-stock window expires, which can strand a paid order in Cancelled when a customer (typically a guest) completes payment on the hosted form late, or when the Deposited callback is delayed.
+
+`Scheduler` hooks the `woocommerce_cancel_unpaid_order` filter and, for BCI orders with a stored `mdOrder`, resolves the gateway status before the cancellation is allowed:
+
+- If the resolver settles the order into a final state (paid, refunded, failed, cancelled), the WooCommerce cancellation is suppressed.
+- If the gateway order is still merely Registered, the customer abandoned the hosted form and the cancellation proceeds normally.
+- If a payment attempt is in flight (authorised, ACS initiated, pending) or the gateway cannot be queried, the cancellation is held and retried on the next WooCommerce cancellation run, up to `CANCELLATION_HOLD_MAX_MINUTES` (default 1440) after order creation.
+
+Together with the callback resolving cancelled orders, this closes the paid-but-cancelled gap for guest checkouts.
 
 ## Logging
 

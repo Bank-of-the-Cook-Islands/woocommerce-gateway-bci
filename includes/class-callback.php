@@ -277,7 +277,9 @@ final class Callback {
 	}
 
 	private static function should_resolve(\WC_Order $order): bool {
-		return $order->has_status(['pending', 'failed', 'on-hold']) || $order->is_paid();
+		// Cancelled orders stay resolvable so a late Deposited callback can
+		// recover a payment completed after WooCommerce cancelled the order.
+		return $order->has_status(['pending', 'failed', 'on-hold', 'cancelled']) || $order->is_paid();
 	}
 
 	private static function resolve_order(\WC_Order $order, string $context): void {

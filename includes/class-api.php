@@ -8,6 +8,11 @@ if (!defined('ABSPATH')) {
 
 final class Api
 {
+    /**
+     * The only currency the live BCI TakuEcom merchant account can collect in.
+     */
+    public const LIVE_CURRENCY = 'NZD';
+
     private const CURRENCY_MAP = [
         'NZD' => '554',
         'EUR' => '978',
@@ -82,13 +87,21 @@ final class Api
         }
 
         $currency = strtoupper((string) $currency);
-        if ($currency !== '' && $currency !== 'NZD') {
+        if ($currency !== '' && $currency !== self::LIVE_CURRENCY) {
             Log::notice('BCI TakuEcom checkout is fixed to NZD; ignoring WooCommerce order currency.', [
                 'currency' => $currency,
             ]);
         }
 
-        return 'NZD';
+        return self::LIVE_CURRENCY;
+    }
+
+    public static function has_credentials(string $environment): bool
+    {
+        $prefix = self::credential_prefix($environment);
+
+        return trim((string) self::get_setting($prefix . '_api_login', '')) !== ''
+            && trim((string) self::get_setting($prefix . '_api_password', '')) !== '';
     }
 
     public static function payment_currency_to_numeric(?string $currency): string
@@ -262,17 +275,17 @@ final class Api
 
     private function credentials(string $environment): array
     {
-        if ($environment === 'sandbox') {
-            return [
-                'userName' => (string) self::get_setting('sandbox_api_login', ''),
-                'password' => (string) self::get_setting('sandbox_api_password', ''),
-            ];
-        }
+        $prefix = self::credential_prefix($environment);
 
         return [
-            'userName' => (string) self::get_setting('live_api_login', ''),
-            'password' => (string) self::get_setting('live_api_password', ''),
+            'userName' => (string) self::get_setting($prefix . '_api_login', ''),
+            'password' => (string) self::get_setting($prefix . '_api_password', ''),
         ];
+    }
+
+    private static function credential_prefix(string $environment): string
+    {
+        return $environment === 'sandbox' ? 'sandbox' : 'live';
     }
 
     private function looks_like_auth_error(array $result): bool

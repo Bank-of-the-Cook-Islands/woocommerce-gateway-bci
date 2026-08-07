@@ -53,8 +53,12 @@ final class Plugin
             Scheduler::register();
         }
 
-        if (is_admin() && class_exists(__NAMESPACE__ . '\Admin')) {
-            Admin::init();
+        if (is_admin()) {
+            add_action('admin_notices', [$this, 'gateway_unavailable_notice']);
+
+            if (class_exists(__NAMESPACE__ . '\Admin')) {
+                Admin::init();
+            }
         }
 
         if (class_exists(__NAMESPACE__ . '\Subscriptions')) {
@@ -101,6 +105,32 @@ final class Plugin
 
         echo '<div class="notice notice-error"><p>'
             . esc_html__('TakuEcom - BCI Payments for WooCommerce requires WooCommerce to be installed and active.', Config::TEXT_DOMAIN)
+            . '</p></div>';
+    }
+
+    public function gateway_unavailable_notice(): void
+    {
+        if (!current_user_can('manage_woocommerce')) {
+            return;
+        }
+
+        if (Api::get_setting('enabled', 'no') !== 'yes') {
+            return;
+        }
+
+        $reason = Gateway::availability_error();
+        if ($reason === '') {
+            return;
+        }
+
+        echo '<div class="notice notice-warning"><p>'
+            . esc_html(
+                sprintf(
+                    /* translators: %s is the reason the gateway cannot be offered. */
+                    __('TakuEcom - BCI Payments is enabled but hidden at checkout. %s', Config::TEXT_DOMAIN),
+                    $reason
+                )
+            )
             . '</p></div>';
     }
 

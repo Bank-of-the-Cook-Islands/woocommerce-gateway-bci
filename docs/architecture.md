@@ -208,7 +208,11 @@ The BCI-branded gateway sends NZD (`554`) for live checkout and renewal payment 
 NZD = 554
 ```
 
-If the WooCommerce store or order currency is not NZD, live mode still sends NZD and logs that the order currency was ignored for the BCI request.
+Because the amount is sent as the raw order total, a live store priced in any other currency would have that number collected as NZD. `Gateway::is_available()` therefore hides the gateway at checkout whenever live mode is active and the WooCommerce store currency is not NZD, and an admin notice explains why. Sandbox is exempt because the BPC development merchant deliberately settles in EUR.
+
+The same availability check hides the gateway when the active environment has no API login and password saved, so customers cannot select a method that can only fail after submitting. `process_payment()` repeats the check as a safety net for any path that bypasses `is_available()`, passing the order's own currency to `Gateway::availability_error()` because the request is built from that rather than from the store currency. The two diverge when a multi-currency plugin does not restore the order currency on the order-pay endpoint, or when an admin changes the store currency while unpaid orders exist.
+
+If an order currency other than NZD still reaches the request builder, live mode sends NZD and logs that the order currency was ignored for the BCI request.
 
 When Test mode is enabled, payment requests use the `sandbox_currency` setting regardless of the WooCommerce order currency. It defaults to EUR (`978`) because the BPC development environment defaults new merchants to EUR. Operators may select NZD (`554`) only after configuring the development merchant to use the same currency in the BPC Dev Merchant Portal. The legacy `sandbox_force_eur_currency=yes` setting is still interpreted as EUR when `sandbox_currency` has not yet been saved.
 

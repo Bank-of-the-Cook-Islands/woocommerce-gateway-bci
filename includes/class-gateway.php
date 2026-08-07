@@ -313,11 +313,77 @@ final class Gateway extends \WC_Payment_Gateway
         return '';
     }
 
+    public function is_available(): bool
+    {
+        if (!parent::is_available()) {
+            return false;
+        }
+
+        return self::availability_error() === '';
+    }
+
+    /**
+     * Explains why the gateway cannot be offered, or an empty string when it can.
+     *
+     * Pass the currency the request will actually be built from (an order currency) so the
+     * check is not fooled by a store currency that has since changed or been swapped by a
+     * multi-currency plugin. Defaults to the current WooCommerce store currency.
+     */
+    public static function availability_error(?string $order_currency = null): string
+    {
+        $environment = Api::current_environment();
+
+        if (!Api::has_credentials($environment)) {
+            return $environment === 'sandbox'
+                ? __('The sandbox API login and password are empty. Save the sandbox credentials, or add live credentials and disable Test mode.', Config::TEXT_DOMAIN)
+                : __('The live API login and password are empty. Save the live credentials issued by BCI, or enable Test mode to use the sandbox.', Config::TEXT_DOMAIN);
+        }
+
+        if ($environment !== 'live') {
+            return '';
+        }
+
+        $currency = $order_currency !== null
+            ? strtoupper(trim($order_currency))
+            : (function_exists('get_woocommerce_currency') ? strtoupper((string) get_woocommerce_currency()) : '');
+
+        if ($currency === '' || $currency === Api::LIVE_CURRENCY) {
+            return '';
+        }
+
+        if ($order_currency !== null) {
+            return sprintf(
+                /* translators: 1: the order currency code, 2: the currency BCI collects in. */
+                __('The order currency is %1$s but BCI TakuEcom collects live payments in %2$s, so the order total would be charged as the same number of %2$s.', Config::TEXT_DOMAIN),
+                $currency,
+                Api::LIVE_CURRENCY
+            );
+        }
+
+        return sprintf(
+            /* translators: 1: WooCommerce store currency code, 2: the currency BCI collects in. */
+            __('The store currency is %1$s but BCI TakuEcom collects live payments in %2$s, so a %1$s order would be charged as the same number of %2$s. Price the store in %2$s to accept BCI payments.', Config::TEXT_DOMAIN),
+            $currency,
+            Api::LIVE_CURRENCY
+        );
+    }
+
     public function process_payment($order_id): array
     {
         $order = wc_get_order($order_id);
         if (!$order) {
             wc_add_notice(__('Order not found.', Config::TEXT_DOMAIN), 'error');
+            return ['result' => 'failure'];
+        }
+
+        // The request is built from the order currency, so guard on that rather than on the
+        // store currency, which a multi-currency plugin or an admin edit can have moved on from.
+        $order_currency = trim((string) $order->get_currency());
+
+        $availability_error = self::availability_error($order_currency !== '' ? $order_currency : null);
+        if ($availability_error !== '') {
+            Log::notice('BCI payment blocked by gateway configuration.', ['reason' => $availability_error]);
+            wc_add_notice(__('This payment method is currently unavailable. Please choose another payment method.', Config::TEXT_DOMAIN), 'error');
             return ['result' => 'failure'];
         }
 

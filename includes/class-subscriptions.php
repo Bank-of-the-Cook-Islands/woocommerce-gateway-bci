@@ -378,26 +378,40 @@ final class Subscriptions {
 		]);
 	}
 
+	/**
+	 * Merges a feature into an existing features value.
+	 *
+	 * BPC takes each feature as its own `features` parameter, repeated within the
+	 * one request, so several features are returned as a list and Api encodes
+	 * them as features=A&features=B. A comma-joined string would instead reach
+	 * the gateway as a single unrecognised feature name, which either drops
+	 * FORCE_CREATE_BINDING or fails register.do validation, so it is never
+	 * produced here.
+	 *
+	 * @param mixed $existing Existing features value (string or array).
+	 * @return string|string[] A single feature as a string, several as a list.
+	 */
 	private function ensure_feature($existing, string $feature) {
-		if (is_array($existing)) {
-			if (!in_array($feature, $existing, true)) {
-				$existing[] = $feature;
+		$features = [];
+
+		foreach (is_array($existing) ? $existing : [$existing] as $value) {
+			$value = $this->clean($value);
+			if ($value === '') {
+				continue;
 			}
 
-			return $existing;
+			foreach (preg_split('/[\s,]+/', $value) ?: [] as $part) {
+				if ($part !== '' && !in_array($part, $features, true)) {
+					$features[] = $part;
+				}
+			}
 		}
 
-		$existing = $this->clean($existing);
-		if ($existing === '') {
-			return $feature;
+		if (!in_array($feature, $features, true)) {
+			$features[] = $feature;
 		}
 
-		$features = preg_split('/[\s,]+/', $existing);
-		if (in_array($feature, $features, true)) {
-			return $existing;
-		}
-
-		return [$existing, $feature];
+		return count($features) === 1 ? $features[0] : $features;
 	}
 
 	private function product_is_subscription($product): bool {

@@ -6,6 +6,10 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
+if (!class_exists(__NAMESPACE__ . '\Resolution') && is_readable(__DIR__ . '/class-resolution.php')) {
+    require_once __DIR__ . '/class-resolution.php';
+}
+
 final class Status_Resolver
 {
     private Api $api;
@@ -15,12 +19,187 @@ final class Status_Resolver
         $this->api = $api ?: new Api();
     }
 
+    /**
+     * Reads the current gateway status for an order and applies it.
+     *
+     * The status request lives here; what its answer means is classify()'s
+     * business, and what that means for the order is apply()'s.
+     */
     public function resolve(\WC_Order $order, string $context): string
+    {
+        $status = $this->fetch_status($order, $context);
+        if ($status === null) {
+            return Resolution::ERROR;
+        }
+
+        $resolution = self::classify($status);
+        $this->apply($order, $resolution, $context);
+
+        return $resolution->outcome;
+    }
+
+    /**
+     * The BPC status table. Pure: no WordPress, no order, no side effects.
+     *
+     * This is the single table for every path — browser return, callback,
+     * scheduler and subscription renewal — so a status can only ever mean one
+     * thing to this plugin.
+     *
+     * @param array $status A getOrderStatusExtended payload.
+     */
+    public static function classify(array $status): Resolution
+    {
+        if ((string) ($status['errorCode'] ?? '') !== '0') {
+            return new Resolution(
+                Resolution::ERROR,
+                $status,
+                Resolution::NO_ORDER_STATUS,
+                0,
+                Resolution::REASON_GATEWAY_ERROR
+            );
+        }
+
+        if (!isset($status['orderStatus'])) {
+            return new Resolution(
+                Resolution::ERROR,
+                $status,
+                Resolution::NO_ORDER_STATUS,
+                0,
+                Resolution::REASON_MISSING_STATUS
+            );
+        }
+
+        $order_status = (int) $status['orderStatus'];
+        $action_code = isset($status['actionCode']) ? (int) $status['actionCode'] : 0;
+
+        if ($order_status === Config::STATUS_CAPTURED) {
+            return new Resolution(Resolution::COMPLETED, $status, $order_status, $action_code);
+        }
+
+        if ($order_status === Config::STATUS_REFUNDED) {
+            return new Resolution(Resolution::REFUNDED, $status, $order_status, $action_code);
+        }
+
+        if ($order_status === Config::STATUS_AUTH_CANCELLED) {
+            return new Resolution(Resolution::CANCELLED, $status, $order_status, $action_code);
+        }
+
+        if ($order_status === Config::STATUS_DECLINED) {
+            return new Resolution(Resolution::FAILED, $status, $order_status, $action_code);
+        }
+
+        // A registered order carrying an action code has had a payment attempt
+        // rejected; -30001 is BPC's "no attempt yet" placeholder.
+        if ($order_status === Config::STATUS_REGISTERED && $action_code !== 0 && $action_code !== -30001) {
+            return new Resolution(Resolution::FAILED, $status, $order_status, $action_code);
+        }
+
+        if (in_array($order_status, [
+            Config::STATUS_REGISTERED,
+            Config::STATUS_AUTHORISED,
+            Config::STATUS_ACS_INITIATED,
+            Config::STATUS_PENDING,
+            Config::STATUS_PARTIAL_COMPLETION,
+        ], true)) {
+            return new Resolution(Resolution::PENDING, $status, $order_status, $action_code);
+        }
+
+        return new Resolution(
+            Resolution::ERROR,
+            $status,
+            $order_status,
+            $action_code,
+            Resolution::REASON_UNEXPECTED_STATUS
+        );
+    }
+
+    /**
+     * Carries a classification into WooCommerce: order state, meta, notes, logs
+     * and the bci_woo_payment_status_resolved hook. Every side effect lives here.
+     */
+    public function apply(\WC_Order $order, Resolution $resolution, string $context): void
+    {
+        if ($resolution->reason === Resolution::REASON_GATEWAY_ERROR) {
+            $message = sprintf(
+                /* translators: 1: gateway code, 2: gateway message. */
+                __('BCI status check returned error %1$s: %2$s', Config::TEXT_DOMAIN),
+                $resolution->status['errorCode'] ?? __('unknown', Config::TEXT_DOMAIN),
+                $resolution->status['errorMessage'] ?? __('Unknown error', Config::TEXT_DOMAIN)
+            );
+            $order->add_order_note($message);
+            Log::notice($message, ['order_id' => $order->get_id(), 'context' => $context]);
+            return;
+        }
+
+        if ($resolution->reason === Resolution::REASON_MISSING_STATUS) {
+            $order->add_order_note(__('BCI status response did not include an order status.', Config::TEXT_DOMAIN));
+            Log::notice('BCI status response missing orderStatus.', ['order_id' => $order->get_id()]);
+            return;
+        }
+
+        $order->update_meta_data(Config::META_LAST_STATUS, $resolution->order_status);
+        $order->update_meta_data(Config::META_LAST_ACTION_CODE, $resolution->action_code);
+
+        switch ($resolution->outcome) {
+            case Resolution::COMPLETED:
+                $this->mark_paid($order, $resolution->status, $context);
+                $this->maybe_store_binding($order, $resolution->status);
+                break;
+
+            case Resolution::REFUNDED:
+                $this->mark_refunded($order, $context);
+                break;
+
+            case Resolution::CANCELLED:
+                $this->mark_cancelled_or_failed($order, $context);
+                break;
+
+            case Resolution::FAILED:
+                $this->mark_failed($order, $resolution->status, $context);
+                break;
+
+            case Resolution::PENDING:
+                $order->save();
+                Log::info('BCI payment remains pending.', [
+                    'order_id' => $order->get_id(),
+                    'context' => $context,
+                    'gateway_status' => $resolution->order_status,
+                    'action_code' => $resolution->action_code,
+                ]);
+                break;
+
+            default:
+                $order->add_order_note(sprintf(
+                    /* translators: 1: BCI order status, 2: context. */
+                    __('Unexpected BCI payment status %1$d (%2$s).', Config::TEXT_DOMAIN),
+                    $resolution->order_status,
+                    $context
+                ));
+                $order->save();
+
+                Log::notice('Unexpected BCI payment status.', [
+                    'order_id' => $order->get_id(),
+                    'context' => $context,
+                    'gateway_status' => $resolution->order_status,
+                ]);
+                break;
+        }
+
+        $this->fire_resolved_hook($order, $resolution->outcome, $resolution->status, $context);
+    }
+
+    /**
+     * Asks the gateway for the order status.
+     *
+     * Returns null when there is nothing to classify — no gateway reference, or
+     * the request itself failed — having already noted and logged the reason.
+     */
+    private function fetch_status(\WC_Order $order, string $context): ?array
     {
         $md_order = (string) $order->get_meta(Config::META_MD_ORDER, true);
         if ($md_order === '') {
             $order->add_order_note(__('BCI status check skipped: no gateway reference is stored on this order.', Config::TEXT_DOMAIN));
-            return 'error';
+            return null;
         }
 
         $environment = (string) $order->get_meta(Config::META_ENVIRONMENT, true);
@@ -41,98 +220,10 @@ final class Status_Resolver
                 'context' => $context,
                 'error' => $status->get_error_message(),
             ]);
-            return 'error';
+            return null;
         }
 
-        if ((string) ($status['errorCode'] ?? '') !== '0') {
-            $message = sprintf(
-                /* translators: 1: gateway code, 2: gateway message. */
-                __('BCI status check returned error %1$s: %2$s', Config::TEXT_DOMAIN),
-                $status['errorCode'] ?? __('unknown', Config::TEXT_DOMAIN),
-                $status['errorMessage'] ?? __('Unknown error', Config::TEXT_DOMAIN)
-            );
-            $order->add_order_note($message);
-            Log::notice($message, ['order_id' => $order->get_id(), 'context' => $context]);
-            return 'error';
-        }
-
-        if (!isset($status['orderStatus'])) {
-            $order->add_order_note(__('BCI status response did not include an order status.', Config::TEXT_DOMAIN));
-            Log::notice('BCI status response missing orderStatus.', ['order_id' => $order->get_id()]);
-            return 'error';
-        }
-
-        $order_status = (int) $status['orderStatus'];
-        $action_code = isset($status['actionCode']) ? (int) $status['actionCode'] : 0;
-
-        $order->update_meta_data(Config::META_LAST_STATUS, $order_status);
-        $order->update_meta_data(Config::META_LAST_ACTION_CODE, $action_code);
-
-        if ($order_status === Config::STATUS_CAPTURED) {
-            $this->mark_paid($order, $status, $context);
-            $this->maybe_store_binding($order, $status);
-            $this->fire_resolved_hook($order, 'completed', $status, $context);
-            return 'completed';
-        }
-
-        if ($order_status === Config::STATUS_REFUNDED) {
-            $this->mark_refunded($order, $context);
-            $this->fire_resolved_hook($order, 'refunded', $status, $context);
-            return 'refunded';
-        }
-
-        if ($order_status === Config::STATUS_AUTH_CANCELLED) {
-            $this->mark_cancelled_or_failed($order, $context);
-            $this->fire_resolved_hook($order, 'cancelled', $status, $context);
-            return 'cancelled';
-        }
-
-        if ($order_status === Config::STATUS_DECLINED) {
-            $this->mark_failed($order, $status, $context);
-            $this->fire_resolved_hook($order, 'failed', $status, $context);
-            return 'failed';
-        }
-
-        if ($order_status === Config::STATUS_REGISTERED && $action_code !== 0 && $action_code !== -30001) {
-            $this->mark_failed($order, $status, $context);
-            $this->fire_resolved_hook($order, 'failed', $status, $context);
-            return 'failed';
-        }
-
-        if (in_array($order_status, [
-            Config::STATUS_REGISTERED,
-            Config::STATUS_AUTHORISED,
-            Config::STATUS_ACS_INITIATED,
-            Config::STATUS_PENDING,
-            Config::STATUS_PARTIAL_COMPLETION,
-        ], true)) {
-            $order->save();
-            Log::info('BCI payment remains pending.', [
-                'order_id' => $order->get_id(),
-                'context' => $context,
-                'gateway_status' => $order_status,
-                'action_code' => $action_code,
-            ]);
-            $this->fire_resolved_hook($order, 'pending', $status, $context);
-            return 'pending';
-        }
-
-        $order->add_order_note(sprintf(
-            /* translators: 1: BCI order status, 2: context. */
-            __('Unexpected BCI payment status %1$d (%2$s).', Config::TEXT_DOMAIN),
-            $order_status,
-            $context
-        ));
-        $order->save();
-
-        Log::notice('Unexpected BCI payment status.', [
-            'order_id' => $order->get_id(),
-            'context' => $context,
-            'gateway_status' => $order_status,
-        ]);
-
-        $this->fire_resolved_hook($order, 'error', $status, $context);
-        return 'error';
+        return is_array($status) ? $status : [];
     }
 
     private function mark_paid(\WC_Order $order, array $status, string $context): void

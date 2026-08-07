@@ -99,6 +99,7 @@ woocommerce-gateway-bci/
 │   ├── class-log.php
 │   ├── class-plugin.php
 │   ├── class-renewals.php
+│   ├── class-resolution.php
 │   ├── class-scheduler.php
 │   ├── class-status-resolver.php
 │   ├── class-subscriptions.php
@@ -301,6 +302,13 @@ BPC computes the checksum over exactly the parameters it sends, so a query varia
 
 `Status_Resolver` is shared by browser return, callbacks, scheduled checks, manual recovery, and renewals.
 
+Resolution is split in two:
+
+- `Status_Resolver::classify()` reads a `/getOrderStatusExtended.do` payload and returns a `Resolution` — the outcome, the BPC `orderStatus` and `actionCode`, and, for an error outcome, whether the gateway returned an error code, omitted the order status, or reported a status the plugin does not know. It touches nothing: no order, no WordPress, no logs.
+- `Status_Resolver::apply()` carries a `Resolution` into WooCommerce: order state, `_bci_woo_last_status`/`_bci_woo_last_action_code`, binding metadata, order notes, logs, and the `bci_woo_payment_status_resolved` hook.
+
+`resolve()` is the two joined by the status request, and remains what every caller uses.
+
 Gateway status mapping:
 
 - `2` Captured: mark paid with `payment_complete()`, then apply the configured paid order status override if set.
@@ -385,6 +393,8 @@ When disabled:
 - Binding capture hooks return without storing subscription token data.
 
 When explicitly enabled, subscription checkout attempts to create a BPC stored credential, stores returned binding metadata, and charges renewal orders through `recurrentPayment.do`. This path is not delivered as production scope for v1.0.0.
+
+A renewal charge is only a charge: once `recurrentPayment.do` is accepted, the renewal order is resolved through `Status_Resolver` like any other payment, so it reaches the same order states, the same `_bci_woo_last_status` values, and the same `bci_woo_payment_status_resolved` hook. `Renewals` does not interpret gateway statuses itself.
 
 This path still requires merchant-specific validation before production use:
 

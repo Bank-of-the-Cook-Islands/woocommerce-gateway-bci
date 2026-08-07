@@ -20,16 +20,14 @@ if (!class_exists(__NAMESPACE__ . '\Subscriptions') && is_readable(__DIR__ . '/c
 final class Renewals {
 	private const META_MD_ORDER = '_bci_woo_md_order';
 	private const META_ORDER_NUMBER = '_bci_woo_order_number';
-	private const META_LAST_STATUS = '_bci_woo_last_status';
-	private const META_LAST_ACTION_CODE = '_bci_woo_last_action_code';
 
 	/** @var object|null */
 	private $gateway;
 
-	/** @var object|null */
+	/** @var Api */
 	private $api;
 
-	/** @var object|null */
+	/** @var Status_Resolver */
 	private $resolver;
 
 	/** @var Subscriptions */
@@ -38,10 +36,10 @@ final class Renewals {
 	/** @var Tokens */
 	private $tokens;
 
-	public function __construct($gateway = null, $api = null, $resolver = null, ?Subscriptions $subscriptions = null, ?Tokens $tokens = null) {
+	public function __construct($gateway = null, ?Api $api = null, ?Status_Resolver $resolver = null, ?Subscriptions $subscriptions = null, ?Tokens $tokens = null) {
 		$this->gateway       = is_object($gateway) ? $gateway : null;
-		$this->api           = is_object($api) ? $api : null;
-		$this->resolver      = is_object($resolver) ? $resolver : null;
+		$this->api           = $api ?: new Api();
+		$this->resolver      = $resolver ?: new Status_Resolver($this->api);
 		$this->tokens        = $tokens ?: new Tokens($this->gateway_id());
 		$this->subscriptions = $subscriptions ?: new Subscriptions($this->gateway, $this->tokens);
 	}
@@ -54,10 +52,7 @@ final class Renewals {
 			}
 		}
 
-		$api = \class_exists(Api::class) ? new Api() : null;
-		$resolver = $api && \class_exists(Status_Resolver::class) ? new Status_Resolver($api) : null;
-
-		(new self($gateway, $api, $resolver))->register_hooks();
+		(new self($gateway))->register_hooks();
 	}
 
 	public function register_hooks(): void {
@@ -166,7 +161,6 @@ final class Renewals {
 
 		$embedded_status = $this->embedded_order_status($result);
 		if ($embedded_status !== []) {
-			$this->store_embedded_status_meta($renewal_order, $embedded_status);
 			$this->tokens->capture_from_status($renewal_order, $embedded_status, $client_id);
 		}
 
@@ -174,7 +168,11 @@ final class Renewals {
 			$renewal_order->save();
 		}
 
-		$resolution = $this->resolve_with_status_resolver($renewal_order, $result);
+		// The renewal response embeds an order status, but it is not interpreted
+		// here: the resolver reads the order back from the gateway and applies the
+		// one status table, so a renewal reaches the same order state, meta, notes
+		// and bci_woo_payment_status_resolved hook as any other payment.
+		$resolution = $this->resolver->resolve($renewal_order, 'subscription renewal');
 
 		$this->log('info', 'Processed BCI subscription renewal.', [
 			'order_id'    => $renewal_order->get_id(),
@@ -185,13 +183,7 @@ final class Renewals {
 	}
 
 	private function call_recurrent_payment(array $params, string $environment): array {
-		$api = $this->api ?: $this->make_dependency(Api::class);
-
-		if (!is_object($api) || !is_callable([$api, 'recurrent_payment'])) {
-			throw new \RuntimeException(__('BCI API client is not available.', 'bci-woo'));
-		}
-
-		$result = $api->recurrent_payment($params, $environment);
+		$result = $this->api->recurrent_payment($params, $environment);
 
 		if (\function_exists('is_wp_error') && is_wp_error($result)) {
 			throw new \RuntimeException($result->get_error_message());
@@ -202,55 +194,6 @@ final class Renewals {
 		}
 
 		return $result;
-	}
-
-	private function resolve_with_status_resolver(\WC_Order $order, array $result): string {
-		$resolver = $this->resolver ?: $this->make_dependency(Status_Resolver::class);
-
-		if (is_object($resolver) && is_callable([$resolver, 'resolve'])) {
-			return (string) $resolver->resolve($order, 'subscription renewal');
-		}
-
-		$this->add_order_note(
-			$order,
-			__('BCI renewal request was accepted, but the status resolver is not available. The order remains pending until the next status check.', 'bci-woo')
-		);
-
-		return $this->resolve_embedded_status_without_resolver($order, $result);
-	}
-
-	private function resolve_embedded_status_without_resolver(\WC_Order $order, array $result): string {
-		$status = $this->embedded_order_status($result);
-		if ($status === []) {
-			return 'pending';
-		}
-
-		$order_status = isset($status['orderStatus']) ? (int) $status['orderStatus'] : -1;
-		$action_code  = isset($status['actionCode']) ? (int) $status['actionCode'] : 0;
-
-		if ($order_status === 2) {
-			$transaction_id = $this->clean($status['authRefNum'] ?? $this->extract_order_id($result));
-			if (!$order->is_paid()) {
-				$order->payment_complete($transaction_id);
-			}
-			$this->add_order_note($order, __('Payment completed via BCI TakuEcom subscription renewal.', 'bci-woo'));
-			if (method_exists($order, 'save')) {
-				$order->save();
-			}
-			return 'completed';
-		}
-
-		if ($order_status === 0 && $action_code !== 0 && $action_code !== -30001) {
-			$this->fail_order($order, $this->decline_message_from_status($status));
-			return 'failed';
-		}
-
-		if (in_array($order_status, [3, 6], true)) {
-			$this->fail_order($order, $this->decline_message_from_status($status));
-			return 'failed';
-		}
-
-		return 'pending';
 	}
 
 	private function result_is_error(array $result): bool {
@@ -370,16 +313,6 @@ final class Renewals {
 		return [];
 	}
 
-	private function store_embedded_status_meta(\WC_Order $order, array $status): void {
-		if (isset($status['orderStatus'])) {
-			$order->update_meta_data(self::META_LAST_STATUS, (string) (int) $status['orderStatus']);
-		}
-
-		if (isset($status['actionCode'])) {
-			$order->update_meta_data(self::META_LAST_ACTION_CODE, (string) (int) $status['actionCode']);
-		}
-	}
-
 	private function amount_to_minor_units($amount): int {
 		if (\function_exists('wc_format_decimal')) {
 			$amount = wc_format_decimal($amount, 2);
@@ -485,37 +418,9 @@ final class Renewals {
 		return in_array($environment, ['live', 'sandbox'], true) ? $environment : 'live';
 	}
 
-	private function decline_message_from_status(array $status): string {
-		$description = $this->clean($status['actionCodeDescription'] ?? '');
-		$action_code = isset($status['actionCode']) ? (string) (int) $status['actionCode'] : '';
-
-		if ($description !== '' && $action_code !== '') {
-			return sprintf(
-				/* translators: 1: decline description, 2: action code */
-				__('BCI renewal declined: %1$s (action code: %2$s).', 'bci-woo'),
-				$description,
-				$action_code
-			);
-		}
-
-		return __('BCI renewal declined.', 'bci-woo');
-	}
-
 	private function add_order_note(\WC_Order $order, string $message): void {
 		if (method_exists($order, 'add_order_note')) {
 			$order->add_order_note($message);
-		}
-	}
-
-	private function make_dependency(string $class) {
-		if (!\class_exists($class)) {
-			return null;
-		}
-
-		try {
-			return new $class();
-		} catch (\Throwable $e) {
-			return null;
 		}
 	}
 

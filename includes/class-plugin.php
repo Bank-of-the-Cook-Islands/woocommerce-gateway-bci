@@ -139,6 +139,7 @@ final class Plugin
         require_once Config::plugin_path('includes/class-log.php');
         require_once Config::plugin_path('includes/class-exception.php');
         require_once Config::plugin_path('includes/class-api.php');
+        require_once Config::plugin_path('includes/class-resolution.php');
         require_once Config::plugin_path('includes/class-status-resolver.php');
     }
 

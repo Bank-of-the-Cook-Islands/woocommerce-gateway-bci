@@ -13,6 +13,27 @@ final class Api
         'EUR' => '978',
     ];
 
+    private const LOG_REDACTION = '**removed from log**';
+
+    /**
+     * Request keys that are never written to the log, matched case-insensitively
+     * at any depth of the request body.
+     */
+    private const LOG_SENSITIVE_KEYS = [
+        'password',
+        'bindingid',
+        'token',
+        'cvc',
+        'pan',
+        'maskedpan',
+        'cardholdername',
+        'expiry',
+        'expirydate',
+        'email',
+        'phone',
+        'billingpayerdata',
+    ];
+
     public static function settings(): array
     {
         $settings = get_option(Config::OPTION_KEY, []);
@@ -218,16 +239,9 @@ final class Api
      */
     private function post(string $url, array $body, array $headers, bool $json = false)
     {
-        $log_body = $body;
-        foreach (['password', 'bindingId', 'token', 'cvc'] as $sensitive_key) {
-            if (isset($log_body[$sensitive_key])) {
-                $log_body[$sensitive_key] = '**removed from log**';
-            }
-        }
-
         Log::info('Sending BCI API request.', [
             'url' => $url,
-            'body' => $log_body,
+            'body' => self::redact_log_body($body),
         ]);
 
         $response = wp_remote_post($url, [
@@ -244,7 +258,7 @@ final class Api
         $http_code = wp_remote_retrieve_response_code($response);
         if ($http_code < 200 || $http_code >= 300) {
             $message = 'BCI API returned HTTP ' . $http_code;
-            Log::notice($message, ['response_body' => wp_remote_retrieve_body($response)]);
+            Log::notice($message, self::response_log_context((string) wp_remote_retrieve_body($response)));
             return new \WP_Error('bci_woo_http_error', $message);
         }
 
@@ -253,11 +267,59 @@ final class Api
 
         if (json_last_error() !== JSON_ERROR_NONE || !is_array($decoded)) {
             $message = 'BCI API returned invalid JSON: ' . json_last_error_msg();
-            Log::notice($message, ['response_body' => $body_text]);
+            Log::notice($message, self::response_log_context($body_text));
             return new \WP_Error('bci_woo_json_error', $message);
         }
 
         return $decoded;
+    }
+
+    /**
+     * Redact a request body for the log.
+     *
+     * The gateway body carries credentials, the customer email and the billing
+     * address, so sensitive keys are stripped at every depth rather than only at
+     * the top level.
+     *
+     * @param mixed $value
+     * @return mixed
+     */
+    private static function redact_log_body($value)
+    {
+        if (!is_array($value)) {
+            return $value;
+        }
+
+        $redacted = [];
+        foreach ($value as $key => $item) {
+            $redacted[$key] = in_array(strtolower((string) $key), self::LOG_SENSITIVE_KEYS, true)
+                ? self::LOG_REDACTION
+                : self::redact_log_body($item);
+        }
+
+        return $redacted;
+    }
+
+    /**
+     * Summarise an unexpected response for the log.
+     *
+     * A getOrderStatusExtended body carries binding IDs and card data, so the raw
+     * body is never logged: only the gateway error fields and the body size are.
+     */
+    private static function response_log_context(string $body): array
+    {
+        $context = ['response_length' => strlen($body)];
+
+        $decoded = json_decode($body, true);
+        if (is_array($decoded)) {
+            foreach (['errorCode' => 'error_code', 'errorMessage' => 'error_message'] as $key => $label) {
+                if (isset($decoded[$key]) && is_scalar($decoded[$key])) {
+                    $context[$label] = (string) $decoded[$key];
+                }
+            }
+        }
+
+        return $context;
     }
 
     private function credentials(string $environment): array

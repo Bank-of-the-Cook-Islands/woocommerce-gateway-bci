@@ -348,6 +348,8 @@ BCI_Woo_Plugin
 
 Logs are used for callback rejection, status check failures, unexpected statuses, renewal failures, and currency override handling. Logs do not include full card data or credential values.
 
+Request bodies are redacted at every depth before logging: credentials, binding IDs, tokens, card fields, the customer email, and the billing payer data are replaced with a placeholder. Gateway response bodies are never logged, because a `getOrderStatusExtended` payload carries binding IDs and card data; an unexpected HTTP status or a malformed JSON body records only `errorCode`, `errorMessage`, and the body length.
+
 ## Checkout Block Support
 
 `Blocks_Support` registers the gateway for WooCommerce Checkout Blocks when WooCommerce Blocks payment integration classes are available.
@@ -412,7 +414,8 @@ Security boundaries in v1.0.0:
 - Callback notifications require HMAC-SHA256 verification.
 - Browser return validates the WooCommerce order key.
 - Gateway HTTP requests use WordPress HTTP APIs and normal SSL verification.
-- Logs avoid credentials and full PAN values.
+- Logs avoid credentials, customer PII, and full PAN values.
+- Card labels are masked to the last four digits by `Config::mask_pan()` before they reach `_bci_woo_masked_pan`, so the raw `pan` fallback in a gateway response cannot be persisted unmasked.
 - Admin AJAX actions require nonces and merchant capability checks.
 
 ## Release State

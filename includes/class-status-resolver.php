@@ -245,7 +245,7 @@ final class Status_Resolver
             $order->update_meta_data(Config::META_CLIENT_ID, $client_id);
         }
 
-        $masked_pan = (string) ($status['cardAuthInfo']['maskedPan'] ?? $status['cardAuthInfo']['pan'] ?? '');
+        $masked_pan = Config::mask_pan((string) ($status['cardAuthInfo']['maskedPan'] ?? $status['cardAuthInfo']['pan'] ?? ''));
         if ($masked_pan !== '') {
             $order->update_meta_data(Config::META_MASKED_PAN, $masked_pan);
         }

@@ -85,7 +85,7 @@ final class Tokens {
 				'orderStatus.clientId',
 				'orderStatus.bindingInfo.clientId',
 			], $fallback_client_id),
-			'masked_pan' => $this->first_value($status, [
+			'masked_pan' => Config::mask_pan($this->first_value($status, [
 				'maskedPan',
 				'displayLabel',
 				'pan',
@@ -96,7 +96,7 @@ final class Tokens {
 				'orderStatus.maskedPan',
 				'orderStatus.cardAuthInfo.maskedPan',
 				'orderStatus.cardAuthInfo.pan',
-			]),
+			])),
 			'expiry'     => $this->first_value($status, [
 				'expiryDate',
 				'expiration',
@@ -123,7 +123,7 @@ final class Tokens {
 
 		$changed = $this->update_meta_if_present($order, self::META_BINDING_ID, $token_data['binding_id'] ?? '') || $changed;
 		$changed = $this->update_meta_if_present($order, self::META_CLIENT_ID, $token_data['client_id'] ?? '') || $changed;
-		$changed = $this->update_meta_if_present($order, self::META_MASKED_PAN, $token_data['masked_pan'] ?? '') || $changed;
+		$changed = $this->update_meta_if_present($order, self::META_MASKED_PAN, $this->mask_pan($token_data['masked_pan'] ?? '')) || $changed;
 		$changed = $this->update_meta_if_present($order, self::META_CARD_EXPIRY, $this->normalise_expiry($token_data['expiry'] ?? '')) || $changed;
 
 		$environment = $this->clean($token_data['environment'] ?? '');
@@ -165,7 +165,7 @@ final class Tokens {
 		$changed = false;
 		$changed = $this->update_meta_if_present($subscription, self::META_BINDING_ID, $token_data['binding_id'] ?? '') || $changed;
 		$changed = $this->update_meta_if_present($subscription, self::META_CLIENT_ID, $token_data['client_id'] ?? '') || $changed;
-		$changed = $this->update_meta_if_present($subscription, self::META_MASKED_PAN, $token_data['masked_pan'] ?? '') || $changed;
+		$changed = $this->update_meta_if_present($subscription, self::META_MASKED_PAN, $this->mask_pan($token_data['masked_pan'] ?? '')) || $changed;
 		$changed = $this->update_meta_if_present($subscription, self::META_CARD_EXPIRY, $this->normalise_expiry($token_data['expiry'] ?? '')) || $changed;
 
 		if (($token_data['environment'] ?? '') !== '') {
@@ -355,6 +355,16 @@ final class Tokens {
 		}
 
 		return strlen($value) >= 6 ? substr($value, 0, 6) : $value;
+	}
+
+	/**
+	 * Card labels reach here from callbacks and from caller supplied token data,
+	 * so mask again before anything is written to meta.
+	 *
+	 * @param mixed $value
+	 */
+	private function mask_pan($value): string {
+		return Config::mask_pan($this->clean($value));
 	}
 
 	private function last4_from_mask($value): string {

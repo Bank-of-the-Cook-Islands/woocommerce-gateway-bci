@@ -243,6 +243,13 @@ final class Tokens {
 	}
 
 	private function maybe_create_payment_token(\WC_Order $order, array $token_data): int {
+		// Saved cards belong to the experimental subscriptions feature. While it is off the
+		// gateway does not declare tokenisation support, so a token would be unusable at
+		// checkout and would surface an unconsented card under My Account.
+		if (!$this->subscriptions_enabled()) {
+			return 0;
+		}
+
 		if (!\class_exists('\WC_Payment_Token_CC') || !\class_exists('\WC_Payment_Tokens')) {
 			return 0;
 		}
@@ -286,6 +293,19 @@ final class Tokens {
 
 			return 0;
 		}
+	}
+
+	private function subscriptions_enabled(): bool {
+		if (\class_exists(Api::class) && \is_callable([Api::class, 'subscriptions_enabled'])) {
+			return Api::subscriptions_enabled();
+		}
+
+		if (\function_exists('get_option')) {
+			$settings = get_option('woocommerce_' . $this->gateway_id . '_settings', []);
+			return is_array($settings) && (($settings['enable_subscriptions'] ?? 'no') === 'yes');
+		}
+
+		return false;
 	}
 
 	private function update_meta_if_present($object, string $key, $value): bool {

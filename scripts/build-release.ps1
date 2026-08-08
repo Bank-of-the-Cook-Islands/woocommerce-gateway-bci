@@ -40,7 +40,8 @@ try {
         includes `
         readme.txt `
         woocommerce-gateway-bci.php `
-        docs/merchant-setup-guide.md
+        docs/merchant-setup-guide.md `
+        docs/images/setup
 
     if ($LASTEXITCODE -ne 0) {
         throw "Failed to build release archive for '$Ref'."

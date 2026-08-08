@@ -31,8 +31,8 @@ if (!defined('ABSPATH')) {
 final class Order_State
 {
     /** The two environments a payment can belong to. */
-    public const LIVE = 'live';
-    public const SANDBOX = 'sandbox';
+    private const LIVE = 'live';
+    private const SANDBOX = 'sandbox';
 
     private const META_MD_ORDER = '_bci_woo_md_order';
     private const META_ORDER_NUMBER = '_bci_woo_order_number';

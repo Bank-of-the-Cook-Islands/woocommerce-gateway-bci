@@ -21,8 +21,7 @@ defined( 'ABSPATH' ) || exit;
 final class Admin {
 	public const TEXT_DOMAIN = 'bci-woo';
 
-	public const AJAX_TEST_CONNECTION          = 'bci_woo_connection_test';
-	public const AJAX_TEST_CONNECTION_LEGACY   = 'bci_woo_test_connection';
+	public const AJAX_TEST_CONNECTION          = 'bci_woo_test_connection';
 	public const AJAX_CHECK_PENDING_ORDERS     = 'bci_woo_check_pending_orders';
 	public const AJAX_TEST_SUBSCRIPTION_READY  = 'bci_woo_test_subscription_readiness';
 
@@ -73,7 +72,6 @@ final class Admin {
 		}
 
 		add_action( 'wp_ajax_' . self::AJAX_TEST_CONNECTION, [ $this, 'ajax_test_connection' ] );
-		add_action( 'wp_ajax_' . self::AJAX_TEST_CONNECTION_LEGACY, [ $this, 'ajax_test_connection' ] );
 		add_action( 'wp_ajax_' . self::AJAX_CHECK_PENDING_ORDERS, [ $this, 'ajax_check_pending_orders' ] );
 		add_action( 'wp_ajax_' . self::AJAX_TEST_SUBSCRIPTION_READY, [ $this, 'ajax_test_subscription_readiness' ] );
 	}
@@ -203,7 +201,7 @@ final class Admin {
 	 * @return void
 	 */
 	public function ajax_test_connection(): void {
-		$this->verify_ajax_request( [ self::AJAX_TEST_CONNECTION, self::AJAX_TEST_CONNECTION_LEGACY ] );
+		$this->verify_ajax_request( self::AJAX_TEST_CONNECTION );
 
 		$environment = $this->posted_environment( 'live' );
 		$result      = $this->test_connection( $environment );

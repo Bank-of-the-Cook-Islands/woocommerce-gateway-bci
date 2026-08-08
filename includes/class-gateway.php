@@ -258,7 +258,7 @@ final class Gateway extends \WC_Payment_Gateway
     public function generate_bci_connection_test_html($key, $data): string
     {
         $environment = (string) ($data['environment'] ?? 'sandbox');
-        $nonce = wp_create_nonce('bci_woo_test_connection');
+        $nonce = wp_create_nonce(Admin::AJAX_TEST_CONNECTION);
 
         ob_start();
         ?>
@@ -281,7 +281,7 @@ final class Gateway extends \WC_Payment_Gateway
 
     public function generate_bci_check_pending_html($key, $data): string
     {
-        $nonce = wp_create_nonce('bci_woo_check_pending_orders');
+        $nonce = wp_create_nonce(Admin::AJAX_CHECK_PENDING_ORDERS);
 
         ob_start();
         ?>
@@ -465,7 +465,7 @@ final class Gateway extends \WC_Payment_Gateway
                         button.disabled = true;
                         result.textContent = '<?php echo esc_js(__('Testing...', Config::TEXT_DOMAIN)); ?>';
                         result.style.color = '';
-                        post('bci_woo_test_connection', {
+                        post('<?php echo esc_js(Admin::AJAX_TEST_CONNECTION); ?>', {
                             environment: button.getAttribute('data-environment'),
                             _ajax_nonce: button.getAttribute('data-nonce')
                         }, function(status, response) {
@@ -482,7 +482,7 @@ final class Gateway extends \WC_Payment_Gateway
                         pendingButton.disabled = true;
                         pendingResult.textContent = '<?php echo esc_js(__('Checking...', Config::TEXT_DOMAIN)); ?>';
                         pendingResult.style.color = '';
-                        post('bci_woo_check_pending_orders', {
+                        post('<?php echo esc_js(Admin::AJAX_CHECK_PENDING_ORDERS); ?>', {
                             _ajax_nonce: pendingButton.getAttribute('data-nonce')
                         }, function(status, response) {
                             pendingButton.disabled = false;

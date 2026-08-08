@@ -16,13 +16,44 @@ You need:
 
 For subscriptions, you also need WooCommerce Subscriptions and BCI stored credential permissions. Subscription renewal support is experimental in v1.0 and disabled by default.
 
+## Installing The Plugin
+
+Skip this section if the plugin is already installed and active.
+
+1. In the WordPress admin sidebar, go to Plugins > Add Plugin.
+
+   ![Plugins menu with Add Plugin highlighted](images/setup/add-plugin-menu.png)
+
+2. Click Upload Plugin, then Choose File.
+
+   ![Add Plugins screen with the Upload Plugin button](images/setup/upload-plugin.png)
+
+3. Select the `woocommerce-gateway-bci.zip` file supplied by BCI, then click Install Now.
+
+   ![The plugin ZIP file](images/setup/plugin-zip.png)
+
+4. Click Activate Plugin.
+
+   ![Successful install with the Activate Plugin button](images/setup/activate-plugin.png)
+
 ## Step 1: Open The Gateway Settings
 
 1. In WordPress admin, go to WooCommerce > Settings.
+
+   ![WooCommerce menu with Settings highlighted](images/setup/woocommerce-settings-menu.png)
+
 2. Select the Payments tab.
-3. Open TakuEcom - BCI Payments.
+3. Open TakuEcom - BCI Payments with the Manage button.
+
+   ![Payments tab listing TakuEcom - BCI Payments](images/setup/payments-tab.png)
+
 4. Tick Enable TakuEcom - BCI Payments.
+
+   ![The Enable/Disable checkbox](images/setup/enable-gateway.png)
+
 5. Keep **Use sandbox credentials and endpoint** enabled while testing. This also uses the development environment's default EUR currency.
+
+   ![The Test mode checkbox](images/setup/test-mode-checkbox.png)
 
 ## Step 2: Enter Sandbox Credentials
 
@@ -33,7 +64,12 @@ In Sandbox Configuration:
 3. Keep Sandbox Currency set to EUR. The BPC development environment defaults to EUR.
 4. If your development merchant uses NZD, first change its currency in the BPC Dev Merchant Portal, then select NZD in WooCommerce.
 5. Save changes.
+
+   ![The Save changes button](images/setup/save-changes.png)
+
 6. Click Test connection.
+
+![Sandbox Configuration fields in the gateway settings](images/setup/sandbox-configuration.png)
 
 The connection test confirms that WordPress can reach the selected BCI gateway endpoint with the saved credentials.
 
@@ -46,6 +82,9 @@ The WooCommerce sandbox currency must match the currency selected in the BPC Dev
 The callback keeps WooCommerce in sync even when the customer closes the browser before returning to the store.
 
 1. Copy the Callback URL shown in the plugin settings.
+
+   ![The Callback URL panel in the gateway settings](images/setup/callback-url-field.png)
+
 2. Open Callback notifications in the BCI merchant portal.
 3. Enable callback notifications.
 4. Set Callback type to Static.
@@ -56,6 +95,8 @@ The callback keeps WooCommerce in sync even when the customer closes the browser
 9. Paste that token into the matching Sandbox Callback Token or Live Callback Token field in WooCommerce.
 10. Enable Deposited, Approved, Reversed, Refunded, and Declined by timeout events.
 11. Save the merchant portal settings and the WooCommerce gateway settings.
+
+![Callback notifications settings in the merchant portal](images/setup/portal-callback-notifications.png)
 
 The callback URL is:
 

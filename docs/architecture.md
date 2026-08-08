@@ -121,10 +121,9 @@ woocommerce-gateway-bci/
 └── docs/
     ├── architecture.md
     ├── merchant-setup-guide.md
+    ├── images/setup/ (setup guide screenshots)
     ├── release-test-report-v1.0.0.md
-    ├── release-todo-v1.0.0.md
     ├── requirements-v1.0.0.md
-    ├── screencast-outline.md
     └── bpc/ (vendored BPC integration and API reference)
 ```
 

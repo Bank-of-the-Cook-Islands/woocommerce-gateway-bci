@@ -21,6 +21,10 @@ if (!class_exists(__NAMESPACE__ . '\Subscriptions') && is_readable(__DIR__ . '/c
 	require_once __DIR__ . '/class-subscriptions.php';
 }
 
+if (!class_exists(__NAMESPACE__ . '\Registration') && is_readable(__DIR__ . '/class-registration.php')) {
+	require_once __DIR__ . '/class-registration.php';
+}
+
 final class Renewals {
 	/** @var object|null */
 	private $gateway;
@@ -353,36 +357,11 @@ final class Renewals {
 	}
 
 	private function build_order_number(\WC_Order $order): string {
-		if (is_object($this->gateway) && is_callable([$this->gateway, 'build_order_number'])) {
-			try {
-				$value = $this->gateway->build_order_number($order);
-				if ($value !== '') {
-					return substr($this->clean($value), 0, 36);
-				}
-			} catch (\Throwable $e) {
-				// Use local fallback below.
-			}
-		}
-
-		return substr('WC' . $order->get_id() . '-' . gmdate('YmdHis'), 0, 36);
+		return Registration::build_order_number($order);
 	}
 
 	private function safe_description(\WC_Order $order): string {
-		if (is_object($this->gateway) && is_callable([$this->gateway, 'safe_description'])) {
-			try {
-				$value = $this->gateway->safe_description($order);
-				if ($value !== '') {
-					return substr($this->clean($value), 0, 598);
-				}
-			} catch (\Throwable $e) {
-				// Use local fallback below.
-			}
-		}
-
-		$site_name = \function_exists('get_bloginfo') ? (string) get_bloginfo('name') : 'WooCommerce';
-		$number    = method_exists($order, 'get_order_number') ? $order->get_order_number() : $order->get_id();
-
-		return substr($this->clean(sprintf('WooCommerce order #%s - %s', $number, $site_name)), 0, 598);
+		return Registration::safe_description($order);
 	}
 
 	private function add_order_note(\WC_Order $order, string $message): void {

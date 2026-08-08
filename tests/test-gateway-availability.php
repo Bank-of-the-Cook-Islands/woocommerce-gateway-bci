@@ -230,24 +230,11 @@ namespace BCI\Woo {
     }
 
     // Checkout registers and pays in the environment the store is pointed at right now, so the
-    // gateway must never name an environment of its own when asking for the payment currency:
-    // a live checkout collects NZD even with a sandbox currency configured, and a sandbox
-    // checkout collects the sandbox currency.
-    $bci_test_options = [Config::OPTION_KEY => ['test_mode' => 'no', 'sandbox_currency' => 'EUR']];
-    $live_numeric = gateway()->currency_to_numeric('NZD');
-    if ($live_numeric !== '554') {
-        throw new \RuntimeException(
-            'A live checkout must be charged in NZD (554), got ' . $live_numeric
-        );
-    }
-
-    $bci_test_options = [Config::OPTION_KEY => ['test_mode' => 'yes']];
-    $sandbox_numeric = gateway()->currency_to_numeric('NZD');
-    if ($sandbox_numeric !== '978') {
-        throw new \RuntimeException(
-            'A sandbox checkout must be charged in the sandbox currency EUR (978), got ' . $sandbox_numeric
-        );
-    }
+    // request must never name an environment of its own when asking for the payment currency.
+    // That rule now belongs to the registration module and is pinned on the currency BPC is
+    // actually sent, in tests/test-registration.php: a live checkout collects NZD (554) against
+    // the live host, and a sandbox checkout collects the sandbox currency EUR (978) against the
+    // sandbox host.
 
     echo "Gateway availability tests passed.\n";
 }

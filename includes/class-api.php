@@ -150,43 +150,18 @@ final class Api
     }
 
     /**
-     * @throws Exception
+     * Sends a payment registration to BPC and returns whatever came back.
+     *
+     * Like every other call here this is transport only: what an answer means —
+     * an error code, a 200 with no form to redirect to — is decided by
+     * Registration, which is the one place that knows what a usable registration
+     * has to contain and what an order is left holding when it is not one.
+     *
+     * @return array|\WP_Error
      */
-    public function register_payment(array $params, string $environment): array
+    public function register_payment(array $params, string $environment)
     {
-        $result = $this->post_form(self::api_url($environment) . '/register.do', $params, $environment);
-
-        if (is_wp_error($result)) {
-            throw new Exception(
-                sprintf(
-                    /* translators: %s is the network error from WordPress. */
-                    __('Cannot start payment at BCI. Network error: %s', Config::TEXT_DOMAIN),
-                    $result->get_error_message()
-                )
-            );
-        }
-
-        if (isset($result['errorCode']) && (string) $result['errorCode'] !== '0') {
-            Log::notice('BCI payment registration failed.', [
-                'error_code' => $result['errorCode'],
-                'error_message' => $result['errorMessage'] ?? '',
-            ]);
-
-            throw new Exception(
-                sprintf(
-                    /* translators: 1: gateway error code, 2: gateway error message. */
-                    __('Cannot start payment at BCI. Error %1$s: %2$s', Config::TEXT_DOMAIN),
-                    $result['errorCode'],
-                    $result['errorMessage'] ?? __('Unknown error', Config::TEXT_DOMAIN)
-                )
-            );
-        }
-
-        if (empty($result['formUrl']) || empty($result['orderId'])) {
-            throw new Exception(__('BCI did not return a payment link. Please check the gateway logs.', Config::TEXT_DOMAIN));
-        }
-
-        return $result;
+        return $this->post_form(self::api_url($environment) . '/register.do', $params, $environment);
     }
 
     /**

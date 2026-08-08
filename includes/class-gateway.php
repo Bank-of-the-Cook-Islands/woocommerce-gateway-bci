@@ -14,6 +14,10 @@ if (!class_exists(__NAMESPACE__ . '\Payment_Resolution') && is_readable(__DIR__ 
     require_once __DIR__ . '/class-payment-resolution.php';
 }
 
+if (!class_exists(__NAMESPACE__ . '\Registration') && is_readable(__DIR__ . '/class-registration.php')) {
+    require_once __DIR__ . '/class-registration.php';
+}
+
 final class Gateway extends \WC_Payment_Gateway
 {
     private Api $api;
@@ -398,30 +402,20 @@ final class Gateway extends \WC_Payment_Gateway
             return ['result' => 'failure'];
         }
 
-        $environment = Api::current_environment();
-        $params = $this->build_register_params($order);
+        // Everything the payment itself is made of — the request, what BPC's answer is
+        // allowed to mean, and the reference the order keeps — belongs to Registration.
+        // What is left here is the WooCommerce half: telling the customer, and saying
+        // where checkout goes next.
+        $registration = (new Registration($this->api))->register($order);
 
-        try {
-            $result = $this->api->register_payment($params, $environment);
-        } catch (Exception $e) {
-            wc_add_notice($e->getMessage(), 'error');
-            $order->add_order_note(sprintf(__('BCI payment registration failed: %s', Config::TEXT_DOMAIN), $e->getMessage()));
+        if (!$registration->is_successful()) {
+            wc_add_notice($registration->error_message(), 'error');
             return ['result' => 'failure'];
         }
 
-        Order_State::for($order)->record_registration(
-            (string) $result['orderId'],
-            (string) $params['orderNumber'],
-            $environment,
-            (string) ($params['clientId'] ?? '')
-        );
-
-        $order->add_order_note(__('BCI TakuEcom payment registered. Customer redirected to the hosted payment form.', Config::TEXT_DOMAIN));
-        $order->save();
-
         return [
             'result' => 'success',
-            'redirect' => esc_url_raw((string) $result['formUrl']),
+            'redirect' => $registration->redirect_url(),
         ];
     }
 
@@ -456,101 +450,6 @@ final class Gateway extends \WC_Payment_Gateway
         wc_add_notice(__('The BCI payment was not completed. Please try again or choose another payment method.', Config::TEXT_DOMAIN), 'error');
         wp_safe_redirect($order ? $order->get_checkout_payment_url() : wc_get_checkout_url());
         exit;
-    }
-
-    public function build_register_params(\WC_Order $order): array
-    {
-        $order_number = $this->build_order_number($order);
-        $return_url = add_query_arg([
-            'wc-api' => 'bci_takuecom_return',
-            'order_id' => $order->get_id(),
-            'key' => $order->get_order_key(),
-        ], home_url('/'));
-
-        $params = [
-            'amount' => $this->amount_to_minor_units($order->get_total()),
-            'currency' => $this->currency_to_numeric($order->get_currency()),
-            'language' => 'en',
-            'orderNumber' => $order_number,
-            'returnUrl' => $return_url,
-            'failUrl' => $return_url,
-            'description' => $this->safe_description($order),
-            'jsonParams' => wp_json_encode([
-                'CMS' => 'WordPress ' . get_bloginfo('version') . ' + WooCommerce ' . (defined('WC_VERSION') ? WC_VERSION : 'unknown'),
-                'Module-Version' => Config::VERSION,
-                'CMS_paymentType' => 'redirect',
-            ]),
-        ];
-
-        $email = $order->get_billing_email();
-        if ($email) {
-            $params['email'] = $email;
-        }
-
-        $billing = $this->billing_payer_data($order);
-        if (!empty($billing)) {
-            $params['billingPayerData'] = wp_json_encode($billing);
-        }
-
-        // Stored-credential fields are added by Subscriptions off this filter, which is
-        // hooked only when the merchant has enabled subscriptions. Adding them here too
-        // would be a second copy of the clientId and FORCE_CREATE_BINDING rules, and a
-        // second answer to whether this order wants a binding at all.
-        if (function_exists('apply_filters')) {
-            $params = apply_filters('bci_woo_register_payment_params', $params, $order);
-        }
-
-        return $params;
-    }
-
-    public function amount_to_minor_units($amount): int
-    {
-        return (int) round((float) wc_format_decimal($amount, 2) * 100);
-    }
-
-    public function currency_to_numeric(?string $currency): string
-    {
-        return Api::payment_currency_to_numeric($currency);
-    }
-
-    public function build_order_number(\WC_Order $order): string
-    {
-        return substr('WC' . $order->get_id() . '-' . time(), 0, 36);
-    }
-
-    public function safe_description(\WC_Order $order): string
-    {
-        $description = sprintf(
-            'WooCommerce order #%s - %s',
-            $order->get_order_number(),
-            wp_strip_all_tags((string) get_bloginfo('name'))
-        );
-
-        if (function_exists('mb_substr')) {
-            return mb_substr($description, 0, 598);
-        }
-
-        return substr($description, 0, 598);
-    }
-
-    private function billing_payer_data(\WC_Order $order): array
-    {
-        $country = strtoupper((string) $order->get_billing_country());
-        $map = [
-            'billingCity' => $order->get_billing_city(),
-            'billingCountry' => $country,
-            'billingAddressLine1' => $order->get_billing_address_1(),
-            'billingAddressLine2' => $order->get_billing_address_2(),
-            'billingPostalCode' => $order->get_billing_postcode(),
-        ];
-
-        if ($country !== 'CK') {
-            $map['billingState'] = $order->get_billing_state();
-        }
-
-        return array_filter(array_map(static function ($value): string {
-            return substr(wp_strip_all_tags((string) $value), 0, 50);
-        }, $map));
     }
 
     private function print_admin_inline_script(): void

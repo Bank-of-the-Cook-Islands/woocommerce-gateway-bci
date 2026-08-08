@@ -100,6 +100,8 @@ woocommerce-gateway-bci/
 │   ├── class-order-state.php
 │   ├── class-payment-resolution.php
 │   ├── class-plugin.php
+│   ├── class-registration.php
+│   ├── class-registration-result.php
 │   ├── class-renewals.php
 │   ├── class-resolution.php
 │   ├── class-scheduler.php
@@ -168,7 +170,7 @@ _bci_woo_binding_missing_note_added
 
 `Order_State` (`class-order-state.php`) owns every one of them. It is the only code that names a key or decides the shape of what is stored under one — gateway status is always recorded as an integer, a card expiry always as `YYYYMM`, a card label always masked — so no two callers can disagree about how order state is written. Everything else asks it for what it needs: `Order_State::for($order)->md_order()`, `->environment()`, `->record_status()`, `->is_resolvable()`. The keys themselves are unchanged and stay readable in the database for support queries; values written by earlier versions are normalised on the way out.
 
-For one-off payments, `_bci_woo_md_order`, `_bci_woo_order_number`, and `_bci_woo_environment` are the critical fields. They are persisted immediately after `register.do` returns successfully so browser return, callbacks, manual checks, and scheduled recovery can resolve the order later.
+For one-off payments, `_bci_woo_md_order`, `_bci_woo_order_number`, and `_bci_woo_environment` are the critical fields. `Registration` persists them through `Order_State::record_registration()` immediately after `register.do` returns successfully, and before the customer is redirected, so browser return, callbacks, manual checks, and scheduled recovery can resolve the order later. A registration that fails writes none of them.
 
 `_bci_woo_environment` records where a payment was taken, and is read back rather than recomputed: an order registered in sandbox is still checked against sandbox after the merchant leaves test mode. A renewal order is created fresh by WooCommerce Subscriptions and carries none of its own, so it inherits the environment from the subscription it renews and records it when it is charged.
 
@@ -211,6 +213,8 @@ Implemented calls:
 
 The one-off payment release path uses `register_payment()` and `get_order_status()`. `recurrent_payment()` is present for the gated subscription integration.
 
+Every call is transport only: it returns the decoded response array or a `WP_Error` and does not decide what an answer means. `register_payment()` used to be the exception — it validated the registration response and threw, which split one registration outcome between the API client and the gateway. What a registration answer means now belongs to `Registration`.
+
 `test_connection()` is what the admin connection-test button runs, and `get_bindings()` what the subscription readiness probe runs. `test_connection()` returns `success`, `message`, and `raw` — the decoded gateway response, present whenever the gateway answered at all — so the caller can tell a rejected credential from an endpoint that was never reached and can quote the gateway's own wording.
 
 ## Currency Handling
@@ -235,13 +239,19 @@ The currency belongs to the environment a request is addressed to rather than to
 
 1. Customer places a WooCommerce order using `bci_takuecom`.
 2. WooCommerce creates the order in Pending Payment.
-3. `Gateway::process_payment()` builds the BPC registration request.
-4. The API client calls `/register.do`.
-5. The gateway stores BPC `orderId`/`mdOrder`, the merchant `orderNumber`, and the selected environment on the order.
-6. Customer is redirected to the BCI/BPC hosted payment page.
-7. The customer completes, declines, abandons, or times out on the hosted page.
-8. Browser return, callback, manual check, or scheduled recovery queries `/getOrderStatusExtended.do`.
-9. `Status_Resolver` maps BPC status to WooCommerce order state.
+3. `Gateway::process_payment()` checks that the gateway may be offered for this order and hands it to `Registration::register()`.
+4. `Registration` builds the request and the API client calls `/register.do`.
+5. `Registration` decides whether the answer is a payment: a `WP_Error`, a non-zero `errorCode`, or a response missing `formUrl` or `orderId` is a failure, and the order is left exactly as it was.
+6. On success `Registration` records BPC `orderId`/`mdOrder`, the merchant `orderNumber`, the selected environment, and any registered `clientId`, and saves the order before returning the payment form URL.
+7. `Gateway::process_payment()` turns that result into a checkout notice or a redirect.
+8. Customer is redirected to the BCI/BPC hosted payment page.
+9. The customer completes, declines, abandons, or times out on the hosted page.
+10. Browser return, callback, manual check, or scheduled recovery queries `/getOrderStatusExtended.do`.
+11. `Status_Resolver` maps BPC status to WooCommerce order state.
+
+`Registration` (`class-registration.php`) owns the whole of step 4 to step 6, and `Registration_Result` (`class-registration-result.php`) is what it answers with. Request construction, the billing payer rules, what a `/register.do` answer is allowed to mean, and the reference the order keeps are one decision with one owner, because they add up to a single invariant: an order that has been sent to a hosted payment form knows the `mdOrder`, the `orderNumber` a callback will quote, and the environment both belong to, and knew them before the customer was redirected. A registration that fails records no gateway reference — only a human-facing order note — so there is no partial state for the callback, the scheduler, or a renewal to act on.
+
+Classic checkout and Checkout Blocks both reach it through `Gateway::process_payment()`; the blocks integration supplies the payment method's appearance and availability only.
 
 ## Register Payment Parameters
 
@@ -255,14 +265,18 @@ orderNumber
 returnUrl
 failUrl
 description
+jsonParams
 email
+billingPayerData
 ```
 
-The amount is sent in minor units. The order number is compact and unique per registration attempt. The description is short and does not include card data.
+The amount is sent in minor units. The order number is compact and unique per registration attempt, because a customer can abandon the hosted form and pay again from the order-pay page and BPC rejects a repeated `orderNumber`. The description is short and does not include card data. `email` and `billingPayerData` are sent only when the order has them.
+
+`billingPayerData` carries the billing city, country, address lines, and postal code, each stripped of markup and cut to 50 characters, with empty fields dropped rather than sent blank. `billingState` is omitted for Cook Islands addresses: CK has no ISO subdivisions, so a WooCommerce island name sent as a state is rejected by BPC and takes the whole registration with it.
 
 When experimental subscriptions are disabled, subscription-specific parameters are not added.
 
-When experimental subscriptions are explicitly enabled and the order contains a subscription, the plugin also adds:
+When experimental subscriptions are explicitly enabled and the order contains a subscription, `Tokens::add_binding_params()` adds the following through the `bci_woo_register_payment_params` filter, which `Subscriptions` hooks only at that point. `Registration` has no opinion of its own about whether an order wants a stored credential; it records the `clientId` that was registered:
 
 ```text
 clientId

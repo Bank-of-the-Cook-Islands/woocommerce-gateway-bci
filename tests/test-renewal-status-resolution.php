@@ -42,6 +42,11 @@ namespace {
         return 'Test Store';
     }
 
+    function wp_strip_all_tags(string $value): string
+    {
+        return strip_tags($value);
+    }
+
     class WC_Order
     {
         public array $persisted = [];

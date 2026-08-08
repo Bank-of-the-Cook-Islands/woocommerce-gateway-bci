@@ -41,6 +41,11 @@ namespace {
         return 'Test Store';
     }
 
+    function wp_strip_all_tags(string $value): string
+    {
+        return strip_tags($value);
+    }
+
     class WC_Order
     {
         public array $persisted = [];
@@ -242,9 +247,11 @@ namespace BCI\Woo {
     }
 
     /**
-     * The gateway Renewals is constructed with in production. Its own currency
-     * helper only knows the environment the store is configured for right now,
-     * which is exactly what a renewal must not be priced by.
+     * A gateway that offers a currency helper of its own, which is what Renewals
+     * falls back to when Api cannot answer. Any such helper knows only the
+     * environment the store is configured for right now, which is exactly what a
+     * renewal must not be priced by, so Api's environment-addressed answer has to
+     * win over it.
      */
     final class Gateway_Stub
     {

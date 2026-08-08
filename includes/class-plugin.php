@@ -143,6 +143,8 @@ final class Plugin
         require_once Config::plugin_path('includes/class-resolution.php');
         require_once Config::plugin_path('includes/class-status-resolver.php');
         require_once Config::plugin_path('includes/class-payment-resolution.php');
+        require_once Config::plugin_path('includes/class-registration-result.php');
+        require_once Config::plugin_path('includes/class-registration.php');
     }
 
     private function require_optional_files(): void

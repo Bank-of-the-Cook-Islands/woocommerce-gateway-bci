@@ -22,7 +22,7 @@ This plugin adds a BCI TakuEcom redirect checkout for accepting card payments. C
 | Live recurrent payments | `https://securepayments.bci.co.ck/payment/recurrentPayment.do` |
 | Sandbox recurrent payments | `https://dev.bpcbt.com/payment/recurrentPayment.do` |
 
-Live payment requests are sent as NZD (`554`). The BPC development environment defaults to EUR (`978`), so enabling **Use sandbox credentials and endpoint** automatically sends sandbox checkout and renewal requests as EUR. If the development merchant is configured for NZD instead, select NZD under **Sandbox currency** and make the matching change in the BPC Dev Merchant Portal.
+Live payment requests are sent as NZD (`554`), and the gateway hides itself at checkout when live mode is active and the WooCommerce store currency is anything else, so a store priced in another currency cannot silently collect its totals as NZD. The BPC development environment defaults to EUR (`978`), so enabling **Use sandbox credentials and endpoint** automatically sends sandbox checkout and renewal requests as EUR. If the development merchant is configured for NZD instead, select NZD under **Sandbox currency** and make the matching change in the BPC Dev Merchant Portal.
 
 ## Setup
 
@@ -82,6 +82,16 @@ The gateway ID is `bci_takuecom`. The callback endpoint is:
 /wp-json/bci-woo/v1/callback
 ```
 
+`docs/architecture.md` describes the module layout and payment flows.
+
+Tests are standalone self-contained PHP scripts in `tests/` — no PHPUnit, no database, no network. Each stubs the WordPress and WooCommerce surface it needs and throws an uncaught exception on failure:
+
+```bash
+for t in tests/test-*.php; do php "$t"; done
+```
+
+CI runs on every pull request: `php -l` over every file and the full test suite in a PHP 8.3 container, plus a full-history gitleaks secret scan with a card-PAN rule (`.gitleaks.toml`). Release packaging is `scripts/build-release.ps1`, which includes the merchant setup guide the admin settings link to.
+
 ## Licence
 
 This plugin is licensed under the [GNU General Public Licence v3.0](https://opensource.org/licenses/GPL-3.0).
@@ -89,7 +99,7 @@ This plugin is licensed under the [GNU General Public Licence v3.0](https://open
 ---
 
 **Author:** Bank of the Cook Islands — [bci.co.ck](https://bci.co.ck) — cash@bci.co.ck
-**Version:** 2.0.0
+**Version:** 1.0.2
 
 ---
 

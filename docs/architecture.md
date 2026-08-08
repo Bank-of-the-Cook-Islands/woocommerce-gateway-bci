@@ -1,8 +1,8 @@
 # TakuEcom - BCI Payments for WooCommerce Architecture
 
-This document describes the v1.0.0 release architecture for the BCI TakuEcom WooCommerce gateway.
+This document describes the current architecture of the BCI TakuEcom WooCommerce gateway.
 
-The v1.0.0 production-certified scope is one-off hosted checkout payments. WooCommerce Subscriptions code paths are present, disabled by default, not validated, and not delivered as production scope for v1.0.0.
+The production-certified scope is one-off hosted checkout payments. WooCommerce Subscriptions code paths are present, disabled by default, and not yet production-certified.
 
 ## Release Scope
 
@@ -35,6 +35,8 @@ Out of scope:
 - Hosted payment widgets or saved-card checkout for one-off carts.
 - Google Pay or Apple Pay.
 - PCI scope expansion. Card entry remains on BCI/BPC-hosted pages.
+
+Since v1.0.0: v1.0.1 fixed Cook Islands billing registration, v1.0.2 added BPC API documentation and release packaging, and the unreleased work on `main` fixed five production defects, refactored the code, and added a test suite along with CI.
 
 ## Package
 
@@ -86,6 +88,10 @@ woocommerce-gateway-bci/
 ├── woocommerce-gateway-bci.php
 ├── readme.md
 ├── readme.txt
+├── .gitleaks.toml
+├── .gitea/workflows/
+│   ├── ci.yml
+│   └── secret-scan.yml
 ├── assets/
 │   ├── bci-logo.png
 │   └── js/frontend/blocks.js
@@ -108,13 +114,18 @@ woocommerce-gateway-bci/
 │   ├── class-subscriptions.php
 │   ├── class-tokens.php
 │   └── blocks/class-blocks-support.php
+├── scripts/
+│   └── build-release.ps1
+├── tests/
+│   └── test-*.php (standalone, self-contained; one file per contract)
 └── docs/
     ├── architecture.md
     ├── merchant-setup-guide.md
     ├── release-test-report-v1.0.0.md
     ├── release-todo-v1.0.0.md
     ├── requirements-v1.0.0.md
-    └── screencast-outline.md
+    ├── screencast-outline.md
+    └── bpc/ (vendored BPC integration and API reference)
 ```
 
 ## Bootstrap
@@ -136,6 +147,7 @@ woocommerce-gateway-bci/
 VERSION = '1.0.2'
 TEXT_DOMAIN = 'bci-woo'
 GATEWAY_ID = 'bci_takuecom'
+OPTION_KEY = 'woocommerce_bci_takuecom_settings'
 LOG_SOURCE = 'BCI_Woo_Plugin'
 API_URL_LIVE = 'https://securepayments.bci.co.ck/payment/rest'
 API_URL_SANDBOX = 'https://dev.bpcbt.com/payment/rest'
@@ -148,7 +160,10 @@ SCHEDULER_BATCH_SIZE = 50
 SCHEDULER_INTERVAL_SECONDS = 300
 PENDING_THRESHOLD_MINUTES = 10
 FAILED_LOOKBACK_MINUTES = 60
+CANCELLATION_HOLD_MAX_MINUTES = 1440
 ```
+
+`Config` also owns the BPC `STATUS_*` order-status constants, the sanitiser `Config::clean()`, and the card-label masker `Config::mask_pan()` — the version test in `tests/test-version-consistency.php` pins `VERSION` to the plugin header and the readme.txt stable tag.
 
 ## Order Metadata
 
@@ -469,9 +484,19 @@ Security boundaries in v1.0.0:
 - Card labels are masked to the last four digits by `Config::mask_pan()` before they reach `_bci_woo_masked_pan`, so the raw `pan` fallback in a gateway response cannot be persisted unmasked.
 - Admin AJAX actions require nonces and merchant capability checks.
 
+## Tests and CI
+
+Tests are standalone self-contained PHP scripts in `tests/`, one file per contract — no PHPUnit, no database, no network. Each stubs the WordPress and WooCommerce surface it needs and throws an uncaught exception on failure, so a plain loop runs the suite:
+
+```bash
+for t in tests/test-*.php; do php "$t"; done
+```
+
+CI (`.gitea/workflows/ci.yml`) runs `php -l` over every PHP file and the full suite inside a throwaway `php:8.3` container on every pull request; new `tests/test-*.php` files are picked up automatically, so a test only guards the codebase once it exists — keep tests self-contained so the glob stays safe. A separate workflow (`secret-scan.yml`) runs gitleaks over the full repository history with a card-PAN rule on top of the default secret rules (`.gitleaks.toml`); the `docs/bpc/` reference is path-allowlisted because it carries the vendor's own example PANs and sample keys.
+
 ## Release State
 
-The one-off payment matrix has been validated against BPC sandbox using its default EUR currency:
+The v1.0.0 one-off payment matrix was validated against BPC sandbox using its default EUR currency:
 
 - Payment successful, customer clicks Return.
 - Payment successful, customer closes page.
@@ -480,5 +505,3 @@ The one-off payment matrix has been validated against BPC sandbox using its defa
 - No payment timeout, customer closes page.
 - Payment declined, customer clicks Return.
 - Payment declined, customer closes page.
-
-The release still requires final packaging, clean install smoke testing, production merchant configuration confirmation, and screencast/handover assets before delivery.

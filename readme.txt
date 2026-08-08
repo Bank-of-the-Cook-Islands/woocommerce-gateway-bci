@@ -17,7 +17,7 @@ Customers enter card details on the BCI-hosted secure payment page. WooCommerce 
 Features:
 
 * Live and sandbox mode.
-* NZD live payment currency and EUR-by-default sandbox payments, with a matching sandbox currency selector.
+* NZD live payment currency and EUR-by-default sandbox payments, with a matching sandbox currency selector. In live mode the gateway hides at checkout unless the store currency is NZD.
 * Guided merchant setup inside WooCommerce settings.
 * Connection test buttons.
 * Signed callback endpoint at /wp-json/bci-woo/v1/callback.

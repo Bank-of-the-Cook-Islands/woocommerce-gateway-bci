@@ -104,6 +104,8 @@ Only switch to live after sandbox testing succeeds.
 6. Untick Use sandbox credentials and endpoint.
 7. Place a small live test order if BCI support has approved that process.
 
+Live payments are charged in NZD. If the WooCommerce store currency is set to anything other than NZD, the payment method does not appear at checkout in live mode and an admin notice explains why. Set WooCommerce > Settings > General > Currency to New Zealand dollar before going live.
+
 ## Subscriptions
 
 Subscriptions are experimental in v1.0 and disabled by default. The core v1.0 release is for one-off hosted checkout payments. Enable renewals only after WooCommerce Subscriptions is installed and BCI confirms stored credential permissions for the merchant account.
@@ -141,6 +143,12 @@ Callback fails:
 - Confirm the callback token in WooCommerce matches the merchant portal token.
 - Confirm Signing type is Symmetric.
 - Confirm the callback URL has no redirects or maintenance-mode protection.
+
+Payment method missing at checkout:
+
+- In live mode, confirm the WooCommerce store currency is NZD.
+- Confirm API login and password are saved for the active environment.
+- Confirm the gateway is enabled in WooCommerce > Settings > Payments.
 
 Orders stay Pending:
 

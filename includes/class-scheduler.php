@@ -11,6 +11,10 @@ if (!class_exists(__NAMESPACE__ . '\Order_State') && is_readable(__DIR__ . '/cla
 	require_once __DIR__ . '/class-order-state.php';
 }
 
+if (!class_exists(__NAMESPACE__ . '\Payment_Resolution') && is_readable(__DIR__ . '/class-payment-resolution.php')) {
+	require_once __DIR__ . '/class-payment-resolution.php';
+}
+
 final class Scheduler {
 	public const HOOK = 'bci_woo_check_pending_orders';
 	public const GROUP = 'bci-woo';
@@ -103,12 +107,12 @@ final class Scheduler {
 				continue;
 			}
 
-			if (!Order_State::for($order)->is_resolvable()) {
+			if (!Payment_Resolution::is_resolvable($order)) {
 				continue;
 			}
 
 			try {
-				self::resolve_order($order, 'scheduled status check');
+				Payment_Resolution::resolve($order, Payment_Resolution::SCHEDULED_CHECK);
 				$checked++;
 			} catch (\Throwable $exception) {
 				self::log('error', 'BCI scheduled status check failed.', [
@@ -146,14 +150,13 @@ final class Scheduler {
 		}
 
 		if ($order->get_payment_method() !== self::gateway_id()
-			|| !Order_State::for($order)->is_resolvable()
+			|| !Payment_Resolution::is_resolvable($order)
 		) {
 			return $cancel;
 		}
 
 		try {
-			$resolver   = self::make_status_resolver();
-			$resolution = (string) $resolver->resolve($order, 'unpaid order cancellation check');
+			$resolution = Payment_Resolution::resolve($order, Payment_Resolution::CANCELLATION_CHECK);
 		} catch (\Throwable $exception) {
 			self::log('error', 'BCI status check before unpaid-order cancellation failed.', [
 				'order_id' => $order->get_id(),
@@ -229,63 +232,6 @@ final class Scheduler {
 		}
 
 		return array_values($orders);
-	}
-
-	private static function resolve_order(\WC_Order $order, string $context): void {
-		$resolver = self::make_status_resolver();
-		$resolver->resolve($order, $context);
-	}
-
-	private static function make_status_resolver(): object {
-		$resolver = function_exists('apply_filters')
-			? apply_filters('bci_woo_status_resolver', null)
-			: null;
-
-		if (is_object($resolver) && is_callable([$resolver, 'resolve'])) {
-			return $resolver;
-		}
-
-		if (!class_exists(Status_Resolver::class)) {
-			throw new \RuntimeException('BCI Status_Resolver is unavailable.');
-		}
-
-		$reflection  = new \ReflectionClass(Status_Resolver::class);
-		$constructor = $reflection->getConstructor();
-
-		if (!$constructor || $constructor->getNumberOfRequiredParameters() === 0) {
-			return $reflection->newInstance();
-		}
-
-		$args = [];
-		foreach ($constructor->getParameters() as $parameter) {
-			if ($parameter->isOptional()) {
-				break;
-			}
-
-			$type = $parameter->getType();
-			if ($type instanceof \ReflectionNamedType && !$type->isBuiltin()) {
-				$type_name = $type->getName();
-
-				if ($type_name === Api::class && class_exists(Api::class)) {
-					$args[] = new Api();
-					continue;
-				}
-
-				if ($type_name === Config::class && class_exists(Config::class)) {
-					$args[] = new Config();
-					continue;
-				}
-			}
-
-			if (empty($args) && class_exists(Api::class)) {
-				$args[] = new Api();
-				continue;
-			}
-
-			throw new \RuntimeException('BCI Status_Resolver constructor cannot be inferred.');
-		}
-
-		return $reflection->newInstanceArgs($args);
 	}
 
 	private static function pending_threshold_minutes(): int {

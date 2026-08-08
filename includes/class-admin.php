@@ -29,19 +29,9 @@ final class Admin {
 	public const AJAX_TEST_CONNECTION_LEGACY   = 'bci_woo_test_connection';
 	public const AJAX_CHECK_PENDING_ORDERS     = 'bci_woo_check_pending_orders';
 	public const AJAX_TEST_SUBSCRIPTION_READY  = 'bci_woo_test_subscription_readiness';
-	public const MANUAL_PENDING_ORDERS_FILTER  = 'bci_woo_manual_pending_order_check_result';
-	public const PENDING_ORDERS_CALLBACK_FILTER = 'bci_woo_pending_orders_check_callback';
-	public const SCHEDULER_HOOK                = 'bci_woo_check_pending_orders';
 
 	private const DEFAULT_PENDING_THRESHOLD_MINUTES = 10;
 	private const DEFAULT_FAILED_LOOKBACK_MINUTES   = 60;
-
-	/**
-	 * Optional callback supplied by the main plugin or scheduler.
-	 *
-	 * @var callable|null
-	 */
-	private $pending_orders_callback;
 
 	/**
 	 * Tracks whether inline admin styles have been printed.
@@ -51,22 +41,12 @@ final class Admin {
 	private static $styles_printed = false;
 
 	/**
-	 * @param callable|null $pending_orders_callback Optional manual pending-order checker.
-	 */
-	public function __construct( $pending_orders_callback = null ) {
-		if ( is_callable( $pending_orders_callback ) ) {
-			$this->pending_orders_callback = $pending_orders_callback;
-		}
-	}
-
-	/**
 	 * Convenience boot method for the main plugin.
 	 *
-	 * @param callable|null $pending_orders_callback Optional manual pending-order checker.
 	 * @return self
 	 */
-	public static function init( $pending_orders_callback = null ): self {
-		$admin = new self( $pending_orders_callback );
+	public static function init(): self {
+		$admin = new self();
 		$admin->register_hooks();
 
 		return $admin;
@@ -501,46 +481,29 @@ final class Admin {
 			'manual'                    => true,
 		];
 
-		$result = null;
-		if ( function_exists( 'apply_filters' ) ) {
-			$result = apply_filters( self::MANUAL_PENDING_ORDERS_FILTER, null, $args );
-		}
-
-		if ( null === $result && is_callable( $this->pending_orders_callback ) ) {
-			$result = call_user_func( $this->pending_orders_callback, $args );
-		}
-
-		if ( null === $result && function_exists( 'apply_filters' ) ) {
-			$callback = apply_filters( self::PENDING_ORDERS_CALLBACK_FILTER, null, $args );
-			if ( is_callable( $callback ) ) {
-				$result = call_user_func( $callback, $args );
-			}
-		}
-
-		if ( null === $result ) {
-			$result = $this->call_scheduler_pending_check( $args );
-		}
-
-		if ( null === $result && function_exists( 'has_action' ) && has_action( self::SCHEDULER_HOOK ) ) {
-			do_action( self::SCHEDULER_HOOK, $args );
-
-			return $this->result(
-				true,
-				__( 'Pending order check was triggered. The scheduler did not return a count.', self::TEXT_DOMAIN ),
-				[
-					'checked' => null,
-				]
-			);
-		}
-
-		if ( null === $result ) {
+		// The manual check is the scheduled sweep, run now. It is the same sweep,
+		// over the same orders, through the same resolution entry point, so it is
+		// called rather than discovered.
+		if ( ! class_exists( __NAMESPACE__ . '\\Scheduler' ) ) {
 			return $this->result(
 				false,
-				__( 'The pending-order checker is not available yet. Ensure the scheduler or status resolver is loaded before using this button.', self::TEXT_DOMAIN )
+				__( 'The pending-order checker is not available yet. Ensure the scheduler is loaded before using this button.', self::TEXT_DOMAIN )
 			);
 		}
 
-		return $this->normalise_pending_check_result( $result );
+		$checked = Scheduler::check_pending_orders( $args );
+
+		return $this->result(
+			true,
+			sprintf(
+				/* translators: %d: number of orders checked. */
+				_n( 'Checked %d order.', 'Checked %d orders.', $checked, self::TEXT_DOMAIN ),
+				$checked
+			),
+			[
+				'checked' => $checked,
+			]
+		);
 	}
 
 	/**
@@ -1139,75 +1102,6 @@ final class Admin {
 		$value = (int) $value;
 
 		return $value > 0 ? $value : $fallback;
-	}
-
-	/**
-	 * Try known scheduler method names without requiring the class.
-	 *
-	 * @param array<string,mixed> $args Pending check arguments.
-	 * @return mixed|null
-	 */
-	private function call_scheduler_pending_check( array $args ) {
-		$scheduler_class = __NAMESPACE__ . '\\Scheduler';
-
-		if ( ! class_exists( $scheduler_class ) ) {
-			return null;
-		}
-
-		foreach ( [ 'check_pending_orders', 'checkPendingOrders', 'check_pending_orders_now', 'checkPendingOrdersNow' ] as $method ) {
-			if ( is_callable( [ $scheduler_class, $method ] ) ) {
-				return call_user_func( [ $scheduler_class, $method ], $args );
-			}
-		}
-
-		return null;
-	}
-
-	/**
-	 * Normalise scheduler/callback result into an AJAX payload.
-	 *
-	 * @param mixed $result Raw result.
-	 * @return array<string,mixed>
-	 */
-	private function normalise_pending_check_result( $result ): array {
-		if ( function_exists( 'is_wp_error' ) && is_wp_error( $result ) ) {
-			return $this->result( false, $this->safe_text( $result->get_error_message() ) );
-		}
-
-		if ( is_int( $result ) ) {
-			return $this->result(
-				true,
-				sprintf(
-					/* translators: %d: number of orders checked. */
-					_n( 'Checked %d order.', 'Checked %d orders.', $result, self::TEXT_DOMAIN ),
-					$result
-				),
-				[
-					'checked' => $result,
-				]
-			);
-		}
-
-		if ( is_array( $result ) ) {
-			$success = array_key_exists( 'success', $result ) ? (bool) $result['success'] : true;
-			$message = isset( $result['message'] ) ? (string) $result['message'] : __( 'Pending order check completed.', self::TEXT_DOMAIN );
-
-			if ( ! isset( $result['checked'] ) ) {
-				if ( isset( $result['count'] ) ) {
-					$result['checked'] = (int) $result['count'];
-				} elseif ( isset( $result['orders_checked'] ) ) {
-					$result['checked'] = (int) $result['orders_checked'];
-				}
-			}
-
-			return $this->result( $success, $message, $result );
-		}
-
-		if ( true === $result ) {
-			return $this->result( true, __( 'Pending order check completed.', self::TEXT_DOMAIN ) );
-		}
-
-		return $this->result( false, __( 'Pending order check did not complete.', self::TEXT_DOMAIN ) );
 	}
 
 	/**

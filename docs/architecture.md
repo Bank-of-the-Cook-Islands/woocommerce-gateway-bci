@@ -98,6 +98,7 @@ woocommerce-gateway-bci/
 │   ├── class-gateway.php
 │   ├── class-log.php
 │   ├── class-order-state.php
+│   ├── class-payment-resolution.php
 │   ├── class-plugin.php
 │   ├── class-renewals.php
 │   ├── class-resolution.php
@@ -292,9 +293,9 @@ The callback handler:
 - Verifies the HMAC-SHA256 checksum against configured live and sandbox callback tokens.
 - Finds the order by stored order number, parsed WooCommerce order ID, or stored `mdOrder`.
 - Rejects mismatched `mdOrder` values.
-- Ignores terminal orders where no resolution is needed. Cancelled orders remain resolvable so a late Deposited callback can recover a payment completed after WooCommerce auto-cancelled the unpaid order.
+- Ignores terminal orders where no resolution is needed, per `Payment_Resolution::is_resolvable()`. Cancelled orders remain resolvable so a late Deposited callback can recover a payment completed after WooCommerce auto-cancelled the unpaid order, and paid orders remain resolvable so a portal refund or reversal lands.
 - Fires `bci_woo_callback_received`.
-- Resolves the latest status through `Status_Resolver`.
+- Resolves the latest status through `Payment_Resolution`.
 
 Unknown orders return HTTP 200 after logging to avoid repeated gateway retries for an order the store cannot resolve. Invalid signatures return an error response.
 
@@ -308,9 +309,15 @@ BPC computes the checksum over exactly the parameters it sends, so a query varia
 
 ## Status Resolution
 
-`Status_Resolver` is shared by browser return, callbacks, scheduled checks, manual recovery, and renewals.
+`Payment_Resolution` is the entry point every payment resolution goes through, and `Status_Resolver` is what it drives. Browser return, callbacks, scheduled checks, the unpaid-order cancellation hold, and the admin manual check are adapters: each finds its order however its surface finds one, asks `Payment_Resolution::is_resolvable()`, and reports the outcome as a redirect, an HTTP status, a log line or an AJAX payload. Renewals drive `Status_Resolver` directly, because a renewal charge answers with its own payload rather than an order to look up.
 
-Resolution is split in two:
+`Payment_Resolution::is_resolvable()` is the only rule about which orders are worth asking the gateway about:
+
+- An order with no stored `mdOrder` was never registered at BPC, so there is nothing to ask about.
+- A poll — browser return, scheduled check, cancellation hold — asks only about orders still open: `pending`, `failed`, `on-hold`, or `cancelled`. Cancelled is on that list so a payment completed after WooCommerce auto-cancelled the unpaid order can still be recovered.
+- A callback is BPC announcing a change, so it is answered for a paid order too. That is how a refund or reversal taken in the merchant portal reaches WooCommerce.
+
+Resolution itself is split in two:
 
 - `Status_Resolver::classify()` reads a `/getOrderStatusExtended.do` payload and returns a `Resolution` — the outcome, the BPC `orderStatus` and `actionCode`, and, for an error outcome, whether the gateway returned an error code, omitted the order status, or reported a status the plugin does not know. It touches nothing: no order, no WordPress, no logs.
 - `Status_Resolver::apply()` carries a `Resolution` into WooCommerce: order state, `_bci_woo_last_status`/`_bci_woo_last_action_code`, binding metadata, order notes, logs, and the `bci_woo_payment_status_resolved` hook.
@@ -342,9 +349,9 @@ The scheduler checks:
 - Pending BCI orders older than the configured pending threshold, default 10 minutes.
 - Recently failed BCI orders inside the configured failed recovery window, default 60 minutes.
 
-Only orders with a stored BPC `mdOrder` are resolved. This prevents unrelated failed or pending WooCommerce orders from being touched.
+Only orders `Payment_Resolution::is_resolvable()` accepts are resolved. This prevents unrelated failed or pending WooCommerce orders from being touched.
 
-The same recovery logic is available through the admin manual "Check Pending Orders" button.
+The admin manual "Check Pending Orders" button runs the same sweep by calling `Scheduler::check_pending_orders()`, and reports the count it returns.
 
 ## Unpaid Order Cancellation Hold
 

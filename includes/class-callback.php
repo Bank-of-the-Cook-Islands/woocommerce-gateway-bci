@@ -11,6 +11,10 @@ if (!class_exists(__NAMESPACE__ . '\Order_State') && is_readable(__DIR__ . '/cla
 	require_once __DIR__ . '/class-order-state.php';
 }
 
+if (!class_exists(__NAMESPACE__ . '\Payment_Resolution') && is_readable(__DIR__ . '/class-payment-resolution.php')) {
+	require_once __DIR__ . '/class-payment-resolution.php';
+}
+
 final class Callback {
 	/**
 	 * Lower-cased names of every parameter BPC is documented to send in
@@ -132,7 +136,9 @@ final class Callback {
 			return new \WP_REST_Response(null, 200);
 		}
 
-		if (!self::should_resolve($order)) {
+		// A callback is BPC announcing a change, so paid orders are answered too:
+		// that is how a refund or reversal taken in the merchant portal lands.
+		if (!Payment_Resolution::is_resolvable($order, true)) {
 			self::log('info', 'BCI callback ignored for order in terminal status.', [
 				'order_id' => $order->get_id(),
 				'status'   => $order->get_status(),
@@ -144,7 +150,7 @@ final class Callback {
 			if (function_exists('do_action')) {
 				do_action('bci_woo_callback_received', $order, $params);
 			}
-			self::resolve_order($order, 'gateway callback');
+			Payment_Resolution::resolve($order, Payment_Resolution::CALLBACK);
 		} catch (\Throwable $exception) {
 			self::log('error', 'BCI callback status resolution failed.', [
 				'order_id' => $order->get_id(),
@@ -313,69 +319,6 @@ final class Callback {
 		return $order->get_payment_method() === self::gateway_id()
 			|| $state->order_number() !== ''
 			|| $state->is_resolvable();
-	}
-
-	private static function should_resolve(\WC_Order $order): bool {
-		// Cancelled orders stay resolvable so a late Deposited callback can
-		// recover a payment completed after WooCommerce cancelled the order.
-		return $order->has_status(['pending', 'failed', 'on-hold', 'cancelled']) || $order->is_paid();
-	}
-
-	private static function resolve_order(\WC_Order $order, string $context): void {
-		$resolver = self::make_status_resolver();
-		$resolver->resolve($order, $context);
-	}
-
-	private static function make_status_resolver(): object {
-		$resolver = function_exists('apply_filters')
-			? apply_filters('bci_woo_status_resolver', null)
-			: null;
-
-		if (is_object($resolver) && is_callable([$resolver, 'resolve'])) {
-			return $resolver;
-		}
-
-		if (!class_exists(Status_Resolver::class)) {
-			throw new \RuntimeException('BCI Status_Resolver is unavailable.');
-		}
-
-		$reflection  = new \ReflectionClass(Status_Resolver::class);
-		$constructor = $reflection->getConstructor();
-
-		if (!$constructor || $constructor->getNumberOfRequiredParameters() === 0) {
-			return $reflection->newInstance();
-		}
-
-		$args = [];
-		foreach ($constructor->getParameters() as $parameter) {
-			if ($parameter->isOptional()) {
-				break;
-			}
-
-			$type = $parameter->getType();
-			if ($type instanceof \ReflectionNamedType && !$type->isBuiltin()) {
-				$type_name = $type->getName();
-
-				if ($type_name === Api::class && class_exists(Api::class)) {
-					$args[] = new Api();
-					continue;
-				}
-
-				if ($type_name === Config::class && class_exists(Config::class)) {
-					$args[] = new Config();
-					continue;
-				}
-			}
-
-			if (empty($args) && class_exists(Api::class)) {
-				$args[] = new Api();
-				continue;
-			}
-
-			throw new \RuntimeException('BCI Status_Resolver constructor cannot be inferred.');
-		}
-
-		return $reflection->newInstanceArgs($args);
 	}
 
 	private static function callback_tokens(): array {

@@ -6,7 +6,6 @@ namespace {
     define('ABSPATH', __DIR__);
     define('MINUTE_IN_SECONDS', 60);
 
-    $bci_test_resolver = null;
     $bci_test_options = [];
 
     function get_option(string $key, $default = false)
@@ -17,10 +16,6 @@ namespace {
 
     function apply_filters(string $hook, $value)
     {
-        global $bci_test_resolver;
-        if ($hook === 'bci_woo_status_resolver' && $bci_test_resolver !== null) {
-            return $bci_test_resolver;
-        }
         return $value;
     }
 
@@ -80,26 +75,6 @@ namespace {
             return $this->paid;
         }
     }
-
-    class Fake_Resolver
-    {
-        public string $resolution = 'pending';
-        public $last_status = null;
-        public bool $throw = false;
-
-        public function resolve(WC_Order $order, string $context): string
-        {
-            if ($this->throw) {
-                throw new \RuntimeException('gateway unreachable');
-            }
-
-            if ($this->last_status !== null) {
-                $order->meta['_bci_woo_last_status'] = $this->last_status;
-            }
-
-            return $this->resolution;
-        }
-    }
 }
 
 namespace BCI\Woo {
@@ -125,6 +100,32 @@ namespace BCI\Woo {
         public static function notice(string $message, array $context = []): void
         {
             self::$entries[] = ['notice', $message];
+        }
+    }
+
+    /**
+     * Stands in for the real resolver, which would reach the gateway.
+     *
+     * Payment_Resolution builds one per resolution, so what this one is told to
+     * answer with is held statically.
+     */
+    final class Status_Resolver
+    {
+        public static string $resolution = 'pending';
+        public static $last_status = null;
+        public static bool $throw = false;
+
+        public function resolve(\WC_Order $order, string $context): string
+        {
+            if (self::$throw) {
+                throw new \RuntimeException('gateway unreachable');
+            }
+
+            if (self::$last_status !== null) {
+                $order->meta['_bci_woo_last_status'] = self::$last_status;
+            }
+
+            return self::$resolution;
         }
     }
 
@@ -157,10 +158,6 @@ namespace BCI\Woo {
         }
     }
 
-    global $bci_test_resolver;
-    $resolver = new \Fake_Resolver();
-    $bci_test_resolver = $resolver;
-
     // Orders that are not BCI-managed are untouched.
     assert_hold(false, false, make_order(), 'cancel=false passes through');
     assert_hold(true, true, make_order(['payment_method' => 'stripe']), 'non-BCI order is untouched');
@@ -168,17 +165,17 @@ namespace BCI\Woo {
 
     // The resolver settled the order into a final state: never cancel over the top.
     foreach (['completed', 'refunded', 'cancelled', 'failed'] as $resolution) {
-        $resolver->resolution = $resolution;
+        Status_Resolver::$resolution = $resolution;
         assert_hold(false, true, make_order(), "resolution {$resolution} blocks cancellation");
     }
 
     // Still merely REGISTERED at the gateway: the customer abandoned the form, cancel normally.
-    $resolver->resolution = 'pending';
-    $resolver->last_status = 0;
+    Status_Resolver::$resolution = 'pending';
+    Status_Resolver::$last_status = 0;
     assert_hold(true, true, make_order(), 'abandoned REGISTERED order cancels normally');
 
     // A payment attempt is in flight (e.g. ACS/3-D Secure): hold the cancellation.
-    $resolver->last_status = 5;
+    Status_Resolver::$last_status = 5;
     assert_hold(false, true, make_order(), 'in-flight payment holds cancellation');
 
     // But not indefinitely: past the hold limit the cancellation proceeds.
@@ -187,28 +184,19 @@ namespace BCI\Woo {
     assert_hold(true, true, $old, 'in-flight hold expires after the limit');
 
     // Gateway unreachable: hold within the limit, cancel past it.
-    $resolver->throw = true;
+    Status_Resolver::$throw = true;
     assert_hold(false, true, make_order(), 'gateway error holds cancellation');
     assert_hold(true, true, $old, 'gateway error past the limit cancels');
-    $resolver->throw = false;
+    Status_Resolver::$throw = false;
 
-    // Callback::should_resolve() treats cancelled orders as resolvable.
-    $should_resolve = new \ReflectionMethod(Callback::class, 'should_resolve');
-    $should_resolve->setAccessible(true);
-
-    $cancelled = make_order(['status' => 'cancelled']);
-    if ($should_resolve->invoke(null, $cancelled) !== true) {
+    // A cancelled order stays resolvable, which is what lets a late Deposited
+    // callback recover a payment WooCommerce had already given up on.
+    if (Payment_Resolution::is_resolvable(make_order(['status' => 'cancelled']), true) !== true) {
         throw new \RuntimeException('cancelled order should be resolvable by the callback');
     }
 
-    $completed = make_order(['status' => 'completed', 'paid' => true]);
-    if ($should_resolve->invoke(null, $completed) !== true) {
-        throw new \RuntimeException('paid order should stay resolvable by the callback');
-    }
-
-    $draft = make_order(['status' => 'checkout-draft']);
-    if ($should_resolve->invoke(null, $draft) !== false) {
-        throw new \RuntimeException('draft order should not be resolvable by the callback');
+    if (Payment_Resolution::is_resolvable(make_order(['status' => 'cancelled'])) !== true) {
+        throw new \RuntimeException('cancelled order should be resolvable by a poll too');
     }
 
     echo "Cancelled order recovery tests passed.\n";

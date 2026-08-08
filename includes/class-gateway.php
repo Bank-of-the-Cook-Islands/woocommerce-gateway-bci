@@ -10,6 +10,10 @@ if (!class_exists(__NAMESPACE__ . '\Order_State') && is_readable(__DIR__ . '/cla
     require_once __DIR__ . '/class-order-state.php';
 }
 
+if (!class_exists(__NAMESPACE__ . '\Payment_Resolution') && is_readable(__DIR__ . '/class-payment-resolution.php')) {
+    require_once __DIR__ . '/class-payment-resolution.php';
+}
+
 final class Gateway extends \WC_Payment_Gateway
 {
     private Api $api;
@@ -433,10 +437,11 @@ final class Gateway extends \WC_Payment_Gateway
             exit;
         }
 
-        if (($order->has_status(['pending', 'failed', 'on-hold']) || !$order->is_paid())
-            && Order_State::for($order)->is_resolvable()
-        ) {
-            $this->resolver->resolve($order, 'browser return');
+        // A browser return is a poll, so it asks only about orders still open —
+        // an order a callback has already settled is left alone rather than
+        // re-read and re-noted on every refresh of this URL.
+        if (Payment_Resolution::is_resolvable($order)) {
+            Payment_Resolution::resolve($order, Payment_Resolution::BROWSER_RETURN);
             $order = wc_get_order($order_id);
         }
 

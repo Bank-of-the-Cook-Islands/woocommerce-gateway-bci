@@ -189,6 +189,8 @@ The gateway settings are grouped into:
 
 Test mode defaults to enabled. Subscription renewals default to disabled.
 
+`Gateway::init_form_fields()` is the settings schema, and `Gateway` renders every custom field type that schema declares, because `WC_Settings_API` dispatches `generate_{type}_html` on the gateway instance. `Admin` (`class-admin.php`) answers the admin AJAX actions behind the buttons — connection test, manual pending-order check, subscription readiness — and renders the two panels the gateway hands to it by name: the guided setup and the readiness test. Every BPC request behind those actions is made by `Api`, so endpoints, timeout, credentials and the credential-rejection heuristic have a single home.
+
 The paid order status option supports:
 
 - `default`: use WooCommerce `payment_complete()` behaviour.
@@ -204,9 +206,12 @@ Implemented calls:
 - `register_payment()` posts form data to `/register.do`.
 - `get_order_status()` posts form data to `/getOrderStatusExtended.do`.
 - `recurrent_payment()` posts JSON to `/payment/recurrentPayment.do`.
+- `get_bindings()` posts form data to `/getBindings.do` to list a client's stored credentials.
 - `test_connection()` performs a lightweight status request to verify credentials.
 
 The one-off payment release path uses `register_payment()` and `get_order_status()`. `recurrent_payment()` is present for the gated subscription integration.
+
+`test_connection()` is what the admin connection-test button runs, and `get_bindings()` what the subscription readiness probe runs. `test_connection()` returns `success`, `message`, and `raw` — the decoded gateway response, present whenever the gateway answered at all — so the caller can tell a rejected credential from an endpoint that was never reached and can quote the gateway's own wording.
 
 ## Currency Handling
 

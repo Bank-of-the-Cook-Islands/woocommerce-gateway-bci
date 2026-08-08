@@ -3,8 +3,10 @@
  * Admin settings helpers for the BCI TakuEcom WooCommerce gateway.
  *
  * This file intentionally avoids extending WooCommerce classes so it can be
- * loaded before WooCommerce has finished initialising. The gateway can delegate
- * settings fields and custom field rendering to this class once it is ready.
+ * loaded before WooCommerce has finished initialising. It answers the settings
+ * screen's AJAX actions and renders the two panels the gateway delegates to it;
+ * the gateway owns the settings schema and every other field renderer, and Api
+ * owns every request these actions make to BPC.
  *
  * @package BCI\Woo
  */
@@ -21,10 +23,6 @@ final class Admin {
 	public const GATEWAY_ID  = 'bci_takuecom';
 	public const OPTION_KEY  = 'woocommerce_bci_takuecom_settings';
 
-	public const API_URL_LIVE    = 'https://securepayments.bci.co.ck/payment/rest';
-	public const API_URL_SANDBOX = 'https://dev.bpcbt.com/payment/rest';
-	public const API_TIMEOUT     = 30;
-
 	public const AJAX_TEST_CONNECTION          = 'bci_woo_connection_test';
 	public const AJAX_TEST_CONNECTION_LEGACY   = 'bci_woo_test_connection';
 	public const AJAX_CHECK_PENDING_ORDERS     = 'bci_woo_check_pending_orders';
@@ -34,11 +32,28 @@ final class Admin {
 	private const DEFAULT_FAILED_LOOKBACK_MINUTES   = 60;
 
 	/**
+	 * Client id the readiness probe lists bindings for. No customer ever gets it,
+	 * so the probe asks whether the merchant account may list bindings at all.
+	 */
+	private const READINESS_CLIENT_ID = 'bci_woo_readiness_test';
+
+	/**
 	 * Tracks whether inline admin styles have been printed.
 	 *
 	 * @var bool
 	 */
 	private static $styles_printed = false;
+
+	/**
+	 * The gateway client, created on first use.
+	 *
+	 * Admin is instantiated to render a settings row as well as to answer AJAX,
+	 * and only the AJAX handlers talk to BPC, so the client is built when one of
+	 * them asks for it rather than in the constructor.
+	 *
+	 * @var Api|null
+	 */
+	private $api = null;
 
 	/**
 	 * Convenience boot method for the main plugin.
@@ -75,63 +90,6 @@ final class Admin {
 		add_action( 'wp_ajax_' . self::AJAX_TEST_CONNECTION_LEGACY, [ $this, 'ajax_test_connection' ] );
 		add_action( 'wp_ajax_' . self::AJAX_CHECK_PENDING_ORDERS, [ $this, 'ajax_check_pending_orders' ] );
 		add_action( 'wp_ajax_' . self::AJAX_TEST_SUBSCRIPTION_READY, [ $this, 'ajax_test_subscription_readiness' ] );
-	}
-
-	/**
-	 * Return the gateway form fields expected by WC_Settings_API.
-	 *
-	 * The future gateway class can use:
-	 * $this->form_fields = $admin->get_form_fields();
-	 *
-	 * @param array<string,array<string,mixed>> $existing Existing fields to override defaults.
-	 * @return array<string,array<string,mixed>>
-	 */
-	public function get_form_fields( array $existing = [] ): array {
-		return array_replace( $this->default_form_fields(), $existing );
-	}
-
-	/**
-	 * Optional filter callback for woocommerce_settings_api_form_fields_bci_takuecom.
-	 *
-	 * @param array<string,array<string,mixed>> $fields Gateway fields.
-	 * @return array<string,array<string,mixed>>
-	 */
-	public function filter_gateway_form_fields( array $fields ): array {
-		return $this->get_form_fields( $fields );
-	}
-
-	/**
-	 * Render guided setup before the gateway settings table.
-	 *
-	 * The current Gateway::admin_options() calls this statically.
-	 *
-	 * @return void
-	 */
-	public static function render_guided_setup(): void {
-		$admin = new self();
-
-		echo '<table class="form-table bci-woo-guided-setup-table">';
-		echo $admin->generate_bci_guided_setup_html( 'guided_setup', [ 'title' => __( 'Guided setup', self::TEXT_DOMAIN ) ] ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
-		echo '</table>';
-	}
-
-	/**
-	 * Custom field renderer dispatcher for gateway delegation.
-	 *
-	 * @param string               $key Field key.
-	 * @param array<string,mixed>  $data Field data.
-	 * @param object|null          $gateway Optional gateway instance.
-	 * @return string
-	 */
-	public function generate_custom_field_html( string $key, array $data, $gateway = null ): string {
-		$type   = isset( $data['type'] ) ? (string) $data['type'] : '';
-		$method = 'generate_' . $type . '_html';
-
-		if ( method_exists( $this, $method ) ) {
-			return (string) $this->{$method}( $key, $data, $gateway );
-		}
-
-		return '';
 	}
 
 	/**
@@ -215,115 +173,6 @@ final class Admin {
 		</tr>
 		<?php
 		return (string) ob_get_clean();
-	}
-
-	/**
-	 * Render callback URL display field.
-	 *
-	 * @param string              $key Field key.
-	 * @param array<string,mixed> $data Field data.
-	 * @param object|null         $gateway Optional gateway instance.
-	 * @return string
-	 */
-	public function generate_bci_callback_url_html( string $key, array $data = [], $gateway = null ): string {
-		unset( $key, $gateway );
-
-		$html  = '<p>' . esc_html__( 'Paste this URL into the BCI merchant portal callback notification Link field.', self::TEXT_DOMAIN ) . '</p>';
-		$html .= '<code class="bci-woo-copyable">' . esc_html( $this->get_callback_url() ) . '</code>';
-		$html .= '<p class="description">' . esc_html__( 'Use symmetric HMAC-SHA256 signing and paste the generated callback token into the matching token field.', self::TEXT_DOMAIN ) . '</p>';
-
-		return $this->field_row(
-			(string) ( $data['title'] ?? __( 'Callback URL', self::TEXT_DOMAIN ) ),
-			$html,
-			'bci_callback_url'
-		);
-	}
-
-	/**
-	 * Render a connection test button.
-	 *
-	 * @param string              $key Field key.
-	 * @param array<string,mixed> $data Field data.
-	 * @param object|null         $gateway Optional gateway instance.
-	 * @return string
-	 */
-	public function generate_bci_connection_test_html( string $key, array $data = [], $gateway = null ): string {
-		unset( $gateway );
-
-		$environment = $this->sanitize_environment( $data['environment'] ?? 'live' );
-		$button_id   = 'bci-woo-test-connection-' . $environment;
-		$status_id   = $button_id . '-status';
-		$label       = sprintf(
-			/* translators: %s: payment environment label. */
-			__( 'Test %s connection', self::TEXT_DOMAIN ),
-			$this->environment_label( $environment )
-		);
-
-		$html  = '<button type="button" class="button" id="' . esc_attr( $button_id ) . '">' . esc_html( $label ) . '</button>';
-		$html .= '<span class="bci-woo-ajax-status" id="' . esc_attr( $status_id ) . '" aria-live="polite"></span>';
-		$html .= '<p class="description">' . esc_html__( 'Sends a harmless order status request to BCI using the saved credentials. Save changes first.', self::TEXT_DOMAIN ) . '</p>';
-		$html .= $this->ajax_button_script(
-			$button_id,
-			$status_id,
-			[
-				'action'      => self::AJAX_TEST_CONNECTION,
-				'nonce'       => $this->create_nonce( self::AJAX_TEST_CONNECTION ),
-				'environment' => $environment,
-				'waitingText' => __( 'Testing...', self::TEXT_DOMAIN ),
-			]
-		);
-
-		return $this->field_row(
-			(string) ( $data['title'] ?? __( 'Connection test', self::TEXT_DOMAIN ) ),
-			$html,
-			'bci_connection_test_' . $key
-		);
-	}
-
-	/**
-	 * Render the manual pending-orders button.
-	 *
-	 * @param string              $key Field key.
-	 * @param array<string,mixed> $data Field data.
-	 * @param object|null         $gateway Optional gateway instance.
-	 * @return string
-	 */
-	public function generate_bci_pending_orders_html( string $key, array $data = [], $gateway = null ): string {
-		unset( $key, $gateway );
-
-		$button_id = 'bci-woo-check-pending-orders';
-		$status_id = $button_id . '-status';
-
-		$html  = '<button type="button" class="button" id="' . esc_attr( $button_id ) . '">' . esc_html__( 'Check pending orders', self::TEXT_DOMAIN ) . '</button>';
-		$html .= '<span class="bci-woo-ajax-status" id="' . esc_attr( $status_id ) . '" aria-live="polite"></span>';
-		$html .= '<p class="description">' . esc_html__( 'Manually checks older pending BCI orders and recently failed BCI orders against the gateway.', self::TEXT_DOMAIN ) . '</p>';
-		$html .= $this->ajax_button_script(
-			$button_id,
-			$status_id,
-			[
-				'action'      => self::AJAX_CHECK_PENDING_ORDERS,
-				'nonce'       => $this->create_nonce( self::AJAX_CHECK_PENDING_ORDERS ),
-				'waitingText' => __( 'Checking...', self::TEXT_DOMAIN ),
-			]
-		);
-
-		return $this->field_row(
-			(string) ( $data['title'] ?? __( 'Pending orders', self::TEXT_DOMAIN ) ),
-			$html,
-			'bci_pending_orders'
-		);
-	}
-
-	/**
-	 * Backwards-compatible renderer for the gateway's existing custom field type.
-	 *
-	 * @param string              $key Field key.
-	 * @param array<string,mixed> $data Field data.
-	 * @param object|null         $gateway Optional gateway instance.
-	 * @return string
-	 */
-	public function generate_bci_check_pending_html( string $key, array $data = [], $gateway = null ): string {
-		return $this->generate_bci_pending_orders_html( $key, $data, $gateway );
 	}
 
 	/**
@@ -411,9 +260,8 @@ final class Admin {
 	 */
 	public function test_connection( string $environment ): array {
 		$environment = $this->sanitize_environment( $environment );
-		$credentials = $this->credentials_for_environment( $environment );
 
-		if ( '' === $credentials['userName'] || '' === $credentials['password'] ) {
+		if ( ! Api::has_credentials( $environment ) ) {
 			return $this->result(
 				false,
 				sprintf(
@@ -424,28 +272,31 @@ final class Admin {
 			);
 		}
 
-		$response = $this->gateway_request(
-			$environment,
-			'getOrderStatusExtended.do',
-			[
-				'orderId'  => 'BCI-WOO-CONNECTION-TEST',
-				'language' => 'en',
-			]
-		);
+		$response = $this->api()->test_connection( $environment );
 
-		if ( ! $response['success'] ) {
-			return $response;
-		}
+		if ( empty( $response['success'] ) ) {
+			// A decoded response came back only if the gateway answered, which is
+			// what separates a rejected credential from an endpoint never reached.
+			if ( isset( $response['raw'] ) && is_array( $response['raw'] ) ) {
+				return $this->result(
+					false,
+					sprintf(
+						/* translators: 1: payment environment label, 2: gateway response message. */
+						__( '%1$s credentials were rejected by BCI: %2$s', self::TEXT_DOMAIN ),
+						$this->environment_label( $environment ),
+						$this->response_message( $response['raw'] )
+					),
+					$response
+				);
+			}
 
-		$decoded = $response['data'];
-		if ( $this->is_authentication_error( $decoded ) ) {
 			return $this->result(
 				false,
 				sprintf(
-					/* translators: 1: payment environment label, 2: gateway response message. */
-					__( '%1$s credentials were rejected by BCI: %2$s', self::TEXT_DOMAIN ),
+					/* translators: 1: payment environment label, 2: network or gateway error message. */
+					__( 'Could not reach the %1$s BCI endpoint: %2$s', self::TEXT_DOMAIN ),
 					$this->environment_label( $environment ),
-					$this->response_message( $decoded )
+					$this->safe_text( (string) ( $response['message'] ?? '' ) )
 				),
 				$response
 			);
@@ -520,34 +371,25 @@ final class Admin {
 			return $connection;
 		}
 
-		$response = $this->gateway_request(
-			$environment,
-			'getBindings.do',
-			[
-				'clientId'    => 'bci_woo_readiness_test',
-				'bindingType' => 'R',
-				'showExpired' => 'true',
-				'language'    => 'en',
-			]
-		);
+		$decoded = $this->api()->get_bindings( self::READINESS_CLIENT_ID, $environment );
 
-		if ( ! $response['success'] ) {
+		if ( ! is_array( $decoded ) ) {
 			return $this->result(
 				true,
 				__( 'Credentials are valid, but stored credential readiness could not be confirmed from the admin test. Complete a sandbox subscription checkout to verify FORCE_CREATE_BINDING and recurrentPayment.do.', self::TEXT_DOMAIN ),
 				[
 					'severity' => 'warning',
-					'details'  => $response,
 				]
 			);
 		}
 
-		$decoded = $response['data'];
 		if ( $this->is_permission_error( $decoded ) ) {
 			return $this->result(
 				false,
 				__( 'Sandbox credentials are valid, but stored credentials are not enabled for this merchant account. Contact BCI support and request stored credential, FORCE_CREATE_BINDING, recurrentPayment.do, and merchant-initiated transaction permissions.', self::TEXT_DOMAIN ),
-				$response
+				[
+					'details' => $decoded,
+				]
 			);
 		}
 
@@ -555,7 +397,9 @@ final class Admin {
 			return $this->result(
 				true,
 				__( 'Credentials are valid and stored credential listing appears available. Complete a sandbox subscription checkout to verify card binding and recurrentPayment.do before going live.', self::TEXT_DOMAIN ),
-				$response
+				[
+					'details' => $decoded,
+				]
 			);
 		}
 
@@ -564,7 +408,7 @@ final class Admin {
 			__( 'Credentials are valid. Stored credential permission could not be fully confirmed from the admin test, so verify with a sandbox subscription checkout.', self::TEXT_DOMAIN ),
 			[
 				'severity' => 'warning',
-				'details'  => $response,
+				'details'  => $decoded,
 			]
 		);
 	}
@@ -611,341 +455,19 @@ final class Admin {
 	}
 
 	/**
-	 * Default gateway form fields.
+	 * The one client for BPC requests.
 	 *
-	 * @return array<string,array<string,mixed>>
-	 */
-	private function default_form_fields(): array {
-		return [
-			'guided_setup'                    => [
-				'title' => __( 'Guided setup', self::TEXT_DOMAIN ),
-				'type'  => 'bci_guided_setup',
-			],
-			'gateway_section'                 => [
-				'title'       => __( 'Gateway', self::TEXT_DOMAIN ),
-				'type'        => 'title',
-				'description' => __( 'Configure how BCI TakuEcom appears at checkout.', self::TEXT_DOMAIN ),
-			],
-			'enabled'                         => [
-				'title'   => __( 'Enable gateway', self::TEXT_DOMAIN ),
-				'type'    => 'checkbox',
-				'label'   => __( 'Enable BCI TakuEcom card payments', self::TEXT_DOMAIN ),
-				'default' => 'no',
-			],
-			'title'                           => [
-				'title'       => __( 'Checkout title', self::TEXT_DOMAIN ),
-				'type'        => 'text',
-				'default'     => __( 'Card (BCI TakuEcom)', self::TEXT_DOMAIN ),
-				'description' => __( 'Shown to customers at checkout.', self::TEXT_DOMAIN ),
-				'desc_tip'    => true,
-			],
-			'description'                     => [
-				'title'       => __( 'Checkout description', self::TEXT_DOMAIN ),
-				'type'        => 'textarea',
-				'default'     => __( 'Pay securely by card using BCI TakuEcom.', self::TEXT_DOMAIN ),
-				'description' => __( 'Shown below the checkout title.', self::TEXT_DOMAIN ),
-				'desc_tip'    => true,
-			],
-			'paid_order_status'               => [
-				'title'       => __( 'Paid order status behaviour', self::TEXT_DOMAIN ),
-				'type'        => 'select',
-				'default'     => 'default',
-				'class'       => 'wc-enhanced-select',
-				'description' => __( 'Choose whether WooCommerce decides the paid status or this gateway forces a status after payment_complete().', self::TEXT_DOMAIN ),
-				'options'     => [
-					'default'    => __( 'WooCommerce default', self::TEXT_DOMAIN ),
-					'processing' => __( 'Force Processing', self::TEXT_DOMAIN ),
-					'completed'  => __( 'Force Completed', self::TEXT_DOMAIN ),
-				],
-			],
-			'gateway_section_end'             => [
-				'type' => 'sectionend',
-			],
-			'live_section'                    => [
-				'title'       => __( 'Live configuration', self::TEXT_DOMAIN ),
-				'type'        => 'title',
-				'description' => __( 'Live credentials process real payments.', self::TEXT_DOMAIN ),
-			],
-			'live_api_login'                  => [
-				'title'       => __( 'Live API login', self::TEXT_DOMAIN ),
-				'type'        => 'text',
-				'default'     => '',
-				'description' => __( 'Enter the live API login supplied by BCI.', self::TEXT_DOMAIN ),
-			],
-			'live_api_password'               => [
-				'title'       => __( 'Live API password', self::TEXT_DOMAIN ),
-				'type'        => 'password',
-				'default'     => '',
-				'description' => __( 'Enter the live API password supplied by BCI.', self::TEXT_DOMAIN ),
-			],
-			'live_callback_token'             => [
-				'title'       => __( 'Live callback token', self::TEXT_DOMAIN ),
-				'type'        => 'password',
-				'default'     => '',
-				'description' => __( 'Generate this token in the live BCI merchant portal callback notification settings.', self::TEXT_DOMAIN ),
-			],
-			'callback_url'                    => [
-				'title' => __( 'Callback URL', self::TEXT_DOMAIN ),
-				'type'  => 'bci_callback_url',
-			],
-			'live_connection_test'            => [
-				'title'       => __( 'Live connection test', self::TEXT_DOMAIN ),
-				'type'        => 'bci_connection_test',
-				'environment' => 'live',
-			],
-			'live_section_end'                => [
-				'type' => 'sectionend',
-			],
-			'sandbox_section'                 => [
-				'title'       => __( 'Sandbox configuration', self::TEXT_DOMAIN ),
-				'type'        => 'title',
-				'description' => __( 'Sandbox credentials process test payments only.', self::TEXT_DOMAIN ),
-			],
-			'test_mode'                       => [
-				'title'       => __( 'Test Mode', self::TEXT_DOMAIN ),
-				'type'        => 'checkbox',
-				'label'       => __( 'Use sandbox credentials and endpoint', self::TEXT_DOMAIN ),
-				'default'     => 'yes',
-				'description' => __( 'Uses the BPC development environment and its EUR default. Disable only when ready to process live payments.', self::TEXT_DOMAIN ),
-			],
-			'sandbox_currency'                => [
-				'title'       => __( 'Sandbox currency', self::TEXT_DOMAIN ),
-				'type'        => 'select',
-				'default'     => 'EUR',
-				'description' => __( 'The BPC development environment defaults to EUR. Change this only after selecting the matching currency in the BPC Dev Merchant Portal.', self::TEXT_DOMAIN ),
-				'options'     => [
-					'EUR' => __( 'EUR - Euro (default)', self::TEXT_DOMAIN ),
-					'NZD' => __( 'NZD - New Zealand dollar', self::TEXT_DOMAIN ),
-				],
-			],
-			'sandbox_api_login'               => [
-				'title'       => __( 'Sandbox API login', self::TEXT_DOMAIN ),
-				'type'        => 'text',
-				'default'     => '',
-				'description' => __( 'Enter the sandbox API login supplied by BCI.', self::TEXT_DOMAIN ),
-			],
-			'sandbox_api_password'            => [
-				'title'       => __( 'Sandbox API password', self::TEXT_DOMAIN ),
-				'type'        => 'password',
-				'default'     => '',
-				'description' => __( 'Enter the sandbox API password supplied by BCI.', self::TEXT_DOMAIN ),
-			],
-			'sandbox_callback_token'          => [
-				'title'       => __( 'Sandbox callback token', self::TEXT_DOMAIN ),
-				'type'        => 'password',
-				'default'     => '',
-				'description' => __( 'Generate this token in the sandbox BCI merchant portal callback notification settings.', self::TEXT_DOMAIN ),
-			],
-			'sandbox_connection_test'         => [
-				'title'       => __( 'Sandbox connection test', self::TEXT_DOMAIN ),
-				'type'        => 'bci_connection_test',
-				'environment' => 'sandbox',
-			],
-			'sandbox_section_end'             => [
-				'type' => 'sectionend',
-			],
-			'recovery_section'                => [
-				'title'       => __( 'Callback recovery', self::TEXT_DOMAIN ),
-				'type'        => 'title',
-				'description' => __( 'These settings control scheduled and manual recovery of orders that were not updated by browser return or callback.', self::TEXT_DOMAIN ),
-			],
-			'pending_threshold_minutes'       => [
-				'title'             => __( 'Pending threshold minutes', self::TEXT_DOMAIN ),
-				'type'              => 'number',
-				'default'           => self::DEFAULT_PENDING_THRESHOLD_MINUTES,
-				'description'       => __( 'Pending BCI orders older than this can be checked by scheduled or manual recovery.', self::TEXT_DOMAIN ),
-				'custom_attributes' => [
-					'min'  => '1',
-					'step' => '1',
-				],
-			],
-			'failed_lookback_minutes'         => [
-				'title'             => __( 'Failed recovery lookback minutes', self::TEXT_DOMAIN ),
-				'type'              => 'number',
-				'default'           => self::DEFAULT_FAILED_LOOKBACK_MINUTES,
-				'description'       => __( 'Recently failed BCI orders modified within this window can be checked again to recover premature failures.', self::TEXT_DOMAIN ),
-				'custom_attributes' => [
-					'min'  => '1',
-					'step' => '1',
-				],
-			],
-			'check_pending_orders'            => [
-				'title' => __( 'Manual recovery', self::TEXT_DOMAIN ),
-				'type'  => 'bci_check_pending',
-			],
-			'recovery_section_end'            => [
-				'type' => 'sectionend',
-			],
-			'subscriptions_section'           => [
-				'title'       => __( 'Subscriptions', self::TEXT_DOMAIN ),
-				'type'        => 'title',
-				'description' => __( 'Experimental and disabled by default for v1.0. Enable only after BCI confirms stored credential, FORCE_CREATE_BINDING, recurrentPayment.do, and merchant-initiated transaction permissions for this merchant.', self::TEXT_DOMAIN ),
-			],
-			'enable_subscriptions'            => [
-				'title'       => __( 'Subscription renewals', self::TEXT_DOMAIN ),
-				'type'        => 'checkbox',
-				'label'       => __( 'Enable experimental automatic renewals when WooCommerce Subscriptions is active', self::TEXT_DOMAIN ),
-				'default'     => 'no',
-				'description' => __( 'Leave disabled for the v1.0 one-off payments release unless subscription payments have been validated on this BPC merchant account.', self::TEXT_DOMAIN ),
-			],
-			'renewal_retry_attempts'          => [
-				'title'             => __( 'Renewal retry attempts', self::TEXT_DOMAIN ),
-				'type'              => 'number',
-				'default'           => 0,
-				'description'       => __( 'Leave at 0 when WooCommerce Subscriptions native retry rules are in use.', self::TEXT_DOMAIN ),
-				'custom_attributes' => [
-					'min'  => '0',
-					'step' => '1',
-				],
-			],
-			'renewal_retry_interval'          => [
-				'title'             => __( 'Renewal retry interval minutes', self::TEXT_DOMAIN ),
-				'type'              => 'number',
-				'default'           => 60,
-				'description'       => __( 'Used only if plugin-managed renewal retries are enabled by the renewal handler.', self::TEXT_DOMAIN ),
-				'custom_attributes' => [
-					'min'  => '1',
-					'step' => '1',
-				],
-			],
-			'subscription_readiness_test'     => [
-				'title'       => __( 'Readiness test', self::TEXT_DOMAIN ),
-				'type'        => 'bci_subscription_readiness',
-				'environment' => 'sandbox',
-			],
-			'subscriptions_section_end'       => [
-				'type' => 'sectionend',
-			],
-		];
-	}
-
-	/**
-	 * Make a form-encoded gateway request.
+	 * Every endpoint, timeout, credential and error heuristic this class needs
+	 * lives behind it, so a gateway change is made in Api and nowhere else.
 	 *
-	 * @param string              $environment live or sandbox.
-	 * @param string              $endpoint Endpoint filename.
-	 * @param array<string,mixed> $body Request body without credentials.
-	 * @return array<string,mixed>
+	 * @return Api
 	 */
-	private function gateway_request( string $environment, string $endpoint, array $body ): array {
-		if ( ! function_exists( 'wp_remote_post' ) ) {
-			return $this->result( false, __( 'WordPress HTTP functions are not available.', self::TEXT_DOMAIN ) );
+	private function api(): Api {
+		if ( null === $this->api ) {
+			$this->api = new Api();
 		}
 
-		$environment = $this->sanitize_environment( $environment );
-		$url         = rtrim( $this->api_base_url( $environment ), '/' ) . '/' . ltrim( $endpoint, '/' );
-		$body        = array_merge( $this->credentials_for_environment( $environment ), $body );
-
-		$response = wp_remote_post(
-			$url,
-			[
-				'headers'   => [
-					'Content-Type' => 'application/x-www-form-urlencoded;charset=UTF-8',
-				],
-				'body'      => $body,
-				'timeout'   => self::API_TIMEOUT,
-				'sslverify' => true,
-			]
-		);
-
-		if ( function_exists( 'is_wp_error' ) && is_wp_error( $response ) ) {
-			return $this->result(
-				false,
-				sprintf(
-					/* translators: %s: network error message. */
-					__( 'Could not reach BCI: %s', self::TEXT_DOMAIN ),
-					$this->safe_text( $response->get_error_message() )
-				)
-			);
-		}
-
-		$http_code = function_exists( 'wp_remote_retrieve_response_code' ) ? (int) wp_remote_retrieve_response_code( $response ) : 0;
-		$raw_body  = function_exists( 'wp_remote_retrieve_body' ) ? (string) wp_remote_retrieve_body( $response ) : '';
-
-		if ( $http_code < 200 || $http_code >= 300 ) {
-			return $this->result(
-				false,
-				sprintf(
-					/* translators: %d: HTTP status code. */
-					__( 'BCI returned HTTP %d.', self::TEXT_DOMAIN ),
-					$http_code
-				),
-				[
-					'http_code' => $http_code,
-				]
-			);
-		}
-
-		$decoded = json_decode( $raw_body, true );
-		if ( ! is_array( $decoded ) ) {
-			return $this->result(
-				false,
-				sprintf(
-					/* translators: %s: JSON parser error. */
-					__( 'BCI returned invalid JSON: %s', self::TEXT_DOMAIN ),
-					json_last_error_msg()
-				),
-				[
-					'http_code' => $http_code,
-				]
-			);
-		}
-
-		return $this->result(
-			true,
-			__( 'BCI returned a structured response.', self::TEXT_DOMAIN ),
-			[
-				'http_code' => $http_code,
-				'data'      => $decoded,
-			]
-		);
-	}
-
-	/**
-	 * Get credentials for an environment.
-	 *
-	 * @param string $environment live or sandbox.
-	 * @return array{userName:string,password:string}
-	 */
-	private function credentials_for_environment( string $environment ): array {
-		$settings    = $this->get_settings();
-		$environment = $this->sanitize_environment( $environment );
-		$prefix      = 'live' === $environment ? 'live' : 'sandbox';
-
-		return [
-			'userName' => $this->settings_string( $settings, $prefix . '_api_login' ),
-			'password' => $this->settings_string( $settings, $prefix . '_api_password' ),
-		];
-	}
-
-	/**
-	 * Get the API base URL for an environment.
-	 *
-	 * @param string $environment live or sandbox.
-	 * @return string
-	 */
-	private function api_base_url( string $environment ): string {
-		return 'live' === $this->sanitize_environment( $environment ) ? self::API_URL_LIVE : self::API_URL_SANDBOX;
-	}
-
-	/**
-	 * Get a string setting.
-	 *
-	 * @param array<string,mixed> $settings Settings array.
-	 * @param string              $key Settings key.
-	 * @return string
-	 */
-	private function settings_string( array $settings, string $key ): string {
-		if ( ! isset( $settings[ $key ] ) ) {
-			return '';
-		}
-
-		$value = $settings[ $key ];
-		if ( is_array( $value ) || is_object( $value ) ) {
-			return '';
-		}
-
-		return trim( (string) $value );
+		return $this->api;
 	}
 
 	/**
@@ -1112,24 +634,6 @@ final class Admin {
 	 */
 	private function is_success_error_code( array $decoded ): bool {
 		return isset( $decoded['errorCode'] ) && '0' === (string) $decoded['errorCode'];
-	}
-
-	/**
-	 * Heuristic for authentication failures.
-	 *
-	 * @param array<string,mixed> $decoded Gateway response.
-	 * @return bool
-	 */
-	private function is_authentication_error( array $decoded ): bool {
-		$message = strtolower( $this->response_message( $decoded ) );
-
-		foreach ( [ 'authentication', 'authorisation', 'authorization', 'access denied', 'forbidden', 'login', 'password', 'credential' ] as $needle ) {
-			if ( false !== strpos( $message, $needle ) ) {
-				return true;
-			}
-		}
-
-		return false;
 	}
 
 	/**

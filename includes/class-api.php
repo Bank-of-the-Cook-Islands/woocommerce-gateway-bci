@@ -190,13 +190,49 @@ final class Api
     }
 
     /**
+     * Ask an environment for the extended status of an order.
+     *
+     * `language` pins the response wording to English, as every other outbound
+     * call does. It is not cosmetic here: the wording is what the admin
+     * connection probe's rejection heuristic matches on, and what a declined
+     * payment's actionCodeDescription puts into the order note, and both were
+     * written against the English text. Without it a merchant account whose
+     * default response language is not English would have its rejections read
+     * as passes.
+     *
      * @return array|\WP_Error
      */
     public function get_order_status(string $md_order, string $environment)
     {
         return $this->post_form(
             self::api_url($environment) . '/getOrderStatusExtended.do',
-            ['orderId' => $md_order],
+            [
+                'orderId' => $md_order,
+                'language' => 'en',
+            ],
+            $environment
+        );
+    }
+
+    /**
+     * List the stored-credential bindings BPC holds for a client id.
+     *
+     * Recurring bindings are asked for, expired ones included, because the only
+     * caller is the admin readiness probe: it wants to know whether the merchant
+     * account may list bindings at all, not what any particular binding is.
+     *
+     * @return array|\WP_Error
+     */
+    public function get_bindings(string $client_id, string $environment)
+    {
+        return $this->post_form(
+            self::api_url($environment) . '/getBindings.do',
+            [
+                'clientId' => $client_id,
+                'bindingType' => 'R',
+                'showExpired' => 'true',
+                'language' => 'en',
+            ],
             $environment
         );
     }
@@ -213,6 +249,15 @@ final class Api
         );
     }
 
+    /**
+     * Ask an environment about an order that cannot exist, to see who answers.
+     *
+     * Returns ['success' => bool, 'message' => string], plus 'raw' => the decoded
+     * gateway response whenever the gateway answered at all. A caller reading a
+     * failure can therefore tell a rejected credential (the gateway answered, so
+     * 'raw' is there and carries its wording) from an endpoint that was never
+     * reached (no 'raw').
+     */
     public function test_connection(string $environment): array
     {
         $result = $this->get_order_status('bci-connection-test-' . time(), $environment);
@@ -228,6 +273,7 @@ final class Api
             return [
                 'success' => false,
                 'message' => __('The gateway responded, but the credentials appear to be invalid.', Config::TEXT_DOMAIN),
+                'raw' => $result,
             ];
         }
 
@@ -392,17 +438,31 @@ final class Api
         return $environment === 'sandbox' ? 'sandbox' : 'live';
     }
 
+    /**
+     * Does this response read as the gateway rejecting the credentials?
+     *
+     * The admin connection test used to carry a second copy of this heuristic,
+     * and the copies had drifted: that one looked in five response fields and
+     * carried 'forbidden', this one looked in three and did not, so the same
+     * reply could be a rejection on one screen and a pass on another. The fields
+     * and the needles are the union of the two now, and this is the only copy.
+     */
     private function looks_like_auth_error(array $result): bool
     {
-        $message = strtolower(
-            trim(($result['errorMessage'] ?? '') . ' ' . ($result['error'] ?? '') . ' ' . ($result['message'] ?? ''))
-        );
+        $message = '';
+        foreach (['errorMessage', 'error', 'message', 'displayErrorMessage', 'actionCodeDescription'] as $key) {
+            if (isset($result[$key]) && is_scalar($result[$key])) {
+                $message .= ' ' . (string) $result[$key];
+            }
+        }
+
+        $message = strtolower(trim($message));
 
         if ($message === '') {
             return false;
         }
 
-        foreach (['password', 'login', 'credential', 'authentication', 'authorisation', 'authorization', 'access denied'] as $needle) {
+        foreach (['password', 'login', 'credential', 'authentication', 'authorisation', 'authorization', 'access denied', 'forbidden'] as $needle) {
             if (strpos($message, $needle) !== false) {
                 return true;
             }

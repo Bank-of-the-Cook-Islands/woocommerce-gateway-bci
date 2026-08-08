@@ -156,6 +156,8 @@ namespace BCI\Woo {
     }
 
     require dirname(__DIR__) . '/includes/class-config.php';
+    require dirname(__DIR__) . '/includes/class-order-state.php';
+    require dirname(__DIR__) . '/includes/class-resolution.php';
     require dirname(__DIR__) . '/includes/class-tokens.php';
     require dirname(__DIR__) . '/includes/class-status-resolver.php';
 

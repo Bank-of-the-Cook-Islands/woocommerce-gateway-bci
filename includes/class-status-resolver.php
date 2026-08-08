@@ -6,14 +6,6 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-if (!class_exists(__NAMESPACE__ . '\Resolution') && is_readable(__DIR__ . '/class-resolution.php')) {
-    require_once __DIR__ . '/class-resolution.php';
-}
-
-if (!class_exists(__NAMESPACE__ . '\Order_State') && is_readable(__DIR__ . '/class-order-state.php')) {
-    require_once __DIR__ . '/class-order-state.php';
-}
-
 final class Status_Resolver
 {
     private Api $api;
@@ -343,11 +335,9 @@ final class Status_Resolver
 
         $state->record_card($card);
 
-        if (class_exists(__NAMESPACE__ . '\Tokens')) {
-            // Propagates the same credential to the subscriptions this order backs
-            // and, where the customer consented, to a WooCommerce payment token.
-            (new Tokens(Config::GATEWAY_ID))->store_order_token_data($order, $card);
-        }
+        // Propagates the same credential to the subscriptions this order backs
+        // and, where the customer consented, to a WooCommerce payment token.
+        (new Tokens(Config::GATEWAY_ID))->store_order_token_data($order, $card);
 
         // mark_paid() has already saved the order, and Tokens only saves when its own
         // change detection fires — which it cannot, because it compares against the

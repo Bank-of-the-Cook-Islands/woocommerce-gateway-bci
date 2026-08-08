@@ -39,6 +39,13 @@ final class Log
             'plugin_version' => Config::VERSION,
         ], $context);
 
-        wc_get_logger()->log($level, $message, $context);
+        try {
+            wc_get_logger()->log($level, $message, $context);
+        } catch (\Throwable $e) {
+            // Logging must never break payment processing: a throwing log
+            // handler (a DB handler on a failed write, a third-party handler)
+            // is swallowed here, in the one place every log line passes
+            // through, rather than in per-call-site shims.
+        }
     }
 }

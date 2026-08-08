@@ -21,14 +21,6 @@ namespace BCI\Woo;
 
 defined('ABSPATH') || exit;
 
-if (!class_exists(__NAMESPACE__ . '\Order_State') && is_readable(__DIR__ . '/class-order-state.php')) {
-	require_once __DIR__ . '/class-order-state.php';
-}
-
-if (!class_exists(__NAMESPACE__ . '\Tokens') && is_readable(__DIR__ . '/class-tokens.php')) {
-	require_once __DIR__ . '/class-tokens.php';
-}
-
 final class Subscriptions {
 	private const SUPPORTS = [
 		'products',
@@ -281,10 +273,6 @@ final class Subscriptions {
 			return (string) $this->gateway->id;
 		}
 
-		if (\class_exists(Config::class) && \defined(Config::class . '::GATEWAY_ID')) {
-			return (string) Config::GATEWAY_ID;
-		}
-
-		return 'bci_takuecom';
+		return Config::GATEWAY_ID;
 	}
 }

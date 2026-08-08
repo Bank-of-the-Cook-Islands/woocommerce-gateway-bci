@@ -35,6 +35,11 @@ namespace {
     {
     }
 
+    function sanitize_text_field($value)
+    {
+        return trim(strip_tags((string) $value));
+    }
+
     function absint($value): int
     {
         return abs((int) $value);
@@ -265,12 +270,6 @@ namespace BCI\Woo {
         public static function notice(string $message, array $context = []): void {}
     }
 
-    final class Config
-    {
-        public const TEXT_DOMAIN = 'bci-woo';
-        public const GATEWAY_ID = 'bci_takuecom';
-    }
-
     final class Api
     {
         public static function callback_tokens(): array
@@ -305,6 +304,12 @@ namespace BCI\Woo {
         }
     }
 
+    require dirname(__DIR__) . '/includes/class-config.php';
+    require dirname(__DIR__) . '/includes/class-order-state.php';
+    require dirname(__DIR__) . '/includes/class-resolution.php';
+    require dirname(__DIR__) . '/includes/class-registration-result.php';
+    require dirname(__DIR__) . '/includes/class-registration.php';
+    require dirname(__DIR__) . '/includes/class-payment-resolution.php';
     require dirname(__DIR__) . '/includes/class-gateway.php';
     require dirname(__DIR__) . '/includes/class-callback.php';
 

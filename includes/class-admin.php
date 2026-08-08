@@ -20,16 +20,11 @@ defined( 'ABSPATH' ) || exit;
  */
 final class Admin {
 	public const TEXT_DOMAIN = 'bci-woo';
-	public const GATEWAY_ID  = 'bci_takuecom';
-	public const OPTION_KEY  = 'woocommerce_bci_takuecom_settings';
 
 	public const AJAX_TEST_CONNECTION          = 'bci_woo_connection_test';
 	public const AJAX_TEST_CONNECTION_LEGACY   = 'bci_woo_test_connection';
 	public const AJAX_CHECK_PENDING_ORDERS     = 'bci_woo_check_pending_orders';
 	public const AJAX_TEST_SUBSCRIPTION_READY  = 'bci_woo_test_subscription_readiness';
-
-	private const DEFAULT_PENDING_THRESHOLD_MINUTES = 10;
-	private const DEFAULT_FAILED_LOOKBACK_MINUTES   = 60;
 
 	/**
 	 * Client id the readiness probe lists bindings for. No customer ever gets it,
@@ -68,15 +63,6 @@ final class Admin {
 	}
 
 	/**
-	 * Static registration entry point used by the plugin bootstrap.
-	 *
-	 * @return void
-	 */
-	public static function register(): void {
-		self::init();
-	}
-
-	/**
 	 * Register AJAX hooks. Safe to call even if WooCommerce classes are absent.
 	 *
 	 * @return void
@@ -103,7 +89,7 @@ final class Admin {
 	public function generate_bci_guided_setup_html( string $key, array $data = [], $gateway = null ): string {
 		unset( $key, $gateway );
 
-		$callback_url = $this->get_callback_url();
+		$callback_url = Callback::get_callback_url();
 		$docs_url     = $this->get_setup_guide_url();
 
 		ob_start();
@@ -319,15 +305,15 @@ final class Admin {
 	 * @return array<string,mixed>
 	 */
 	public function check_pending_orders(): array {
-		$settings = $this->get_settings();
+		$settings = Api::settings();
 		$args     = [
 			'pending_threshold_minutes' => $this->positive_int(
-				$settings['pending_threshold_minutes'] ?? self::DEFAULT_PENDING_THRESHOLD_MINUTES,
-				self::DEFAULT_PENDING_THRESHOLD_MINUTES
+				$settings['pending_threshold_minutes'] ?? Config::PENDING_THRESHOLD_MINUTES,
+				Config::PENDING_THRESHOLD_MINUTES
 			),
 			'failed_lookback_minutes'   => $this->positive_int(
-				$settings['failed_lookback_minutes'] ?? $settings['failed_recovery_lookback_minutes'] ?? self::DEFAULT_FAILED_LOOKBACK_MINUTES,
-				self::DEFAULT_FAILED_LOOKBACK_MINUTES
+				$settings['failed_lookback_minutes'] ?? Config::FAILED_LOOKBACK_MINUTES,
+				Config::FAILED_LOOKBACK_MINUTES
 			),
 			'manual'                    => true,
 		];
@@ -335,13 +321,6 @@ final class Admin {
 		// The manual check is the scheduled sweep, run now. It is the same sweep,
 		// over the same orders, through the same resolution entry point, so it is
 		// called rather than discovered.
-		if ( ! class_exists( __NAMESPACE__ . '\\Scheduler' ) ) {
-			return $this->result(
-				false,
-				__( 'The pending-order checker is not available yet. Ensure the scheduler is loaded before using this button.', self::TEXT_DOMAIN )
-			);
-		}
-
 		$checked = Scheduler::check_pending_orders( $args );
 
 		return $this->result(
@@ -411,47 +390,6 @@ final class Admin {
 				'details'  => $decoded,
 			]
 		);
-	}
-
-	/**
-	 * Get saved settings from the gateway option.
-	 *
-	 * @return array<string,mixed>
-	 */
-	public function get_settings(): array {
-		if ( ! function_exists( 'get_option' ) ) {
-			return [];
-		}
-
-		$settings = get_option( self::OPTION_KEY, [] );
-
-		return is_array( $settings ) ? $settings : [];
-	}
-
-	/**
-	 * Get the public callback URL.
-	 *
-	 * @return string
-	 */
-	public function get_callback_url(): string {
-		if ( function_exists( 'rest_url' ) ) {
-			return rest_url( 'bci-woo/v1/callback' );
-		}
-
-		if ( function_exists( 'home_url' ) ) {
-			return home_url( '/wp-json/bci-woo/v1/callback' );
-		}
-
-		return '/wp-json/bci-woo/v1/callback';
-	}
-
-	/**
-	 * Gateway settings option key.
-	 *
-	 * @return string
-	 */
-	public function get_option_key(): string {
-		return self::OPTION_KEY;
 	}
 
 	/**

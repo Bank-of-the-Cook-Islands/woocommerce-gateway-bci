@@ -46,7 +46,7 @@ final class Blocks_Support extends AbstractPaymentMethodType {
 	 * Initialize block integration settings and gateway instance.
 	 */
 	public function initialize() {
-		$this->name        = $this->gateway_id();
+		$this->name        = Config::GATEWAY_ID;
 		$this->settings    = $this->gateway_settings();
 		$this->gateway     = $this->resolve_gateway();
 		$this->initialized = true;
@@ -100,7 +100,7 @@ final class Blocks_Support extends AbstractPaymentMethodType {
 		if ( function_exists( 'wp_set_script_translations' ) ) {
 			wp_set_script_translations(
 				$handle,
-				$this->text_domain(),
+				Config::TEXT_DOMAIN,
 				dirname( $this->plugin_file() ) . '/languages'
 			);
 		}
@@ -143,50 +143,6 @@ final class Blocks_Support extends AbstractPaymentMethodType {
 	}
 
 	/**
-	 * Resolve the configured gateway ID.
-	 *
-	 * @return string
-	 */
-	private function gateway_id() {
-		return (string) $this->config_constant( 'GATEWAY_ID', 'bci_takuecom' );
-	}
-
-	/**
-	 * Resolve the plugin text domain.
-	 *
-	 * @return string
-	 */
-	private function text_domain() {
-		return (string) $this->config_constant( 'TEXT_DOMAIN', 'bci-woo' );
-	}
-
-	/**
-	 * Resolve the plugin version.
-	 *
-	 * @return string
-	 */
-	private function version() {
-		return (string) $this->config_constant( 'VERSION', '1.0.0' );
-	}
-
-	/**
-	 * Resolve a Config class constant with a safe fallback.
-	 *
-	 * @param string $name    Constant name.
-	 * @param mixed  $default Fallback value.
-	 * @return mixed
-	 */
-	private function config_constant( $name, $default ) {
-		$constant = __NAMESPACE__ . '\\Config::' . $name;
-
-		if ( defined( $constant ) ) {
-			return constant( $constant );
-		}
-
-		return $default;
-	}
-
-	/**
 	 * Load gateway settings.
 	 *
 	 * @return array
@@ -196,7 +152,7 @@ final class Blocks_Support extends AbstractPaymentMethodType {
 			return array();
 		}
 
-		$settings = get_option( 'woocommerce_' . $this->gateway_id() . '_settings', array() );
+		$settings = get_option( Config::OPTION_KEY, array() );
 
 		return is_array( $settings ) ? $settings : array();
 	}
@@ -236,12 +192,16 @@ final class Blocks_Support extends AbstractPaymentMethodType {
 	}
 
 	/**
-	 * Resolve script asset metadata, using a generated asset file if present.
+	 * Script asset metadata.
+	 *
+	 * assets/js/frontend/blocks.js is hand-written and shipped as-is — there is
+	 * no build step in this repository — so the dependencies are declared here
+	 * and the cache-busting version is the plugin's own.
 	 *
 	 * @return array
 	 */
 	private function script_asset() {
-		$asset = array(
+		return array(
 			'dependencies' => array(
 				'wc-blocks-registry',
 				'wc-settings',
@@ -249,28 +209,8 @@ final class Blocks_Support extends AbstractPaymentMethodType {
 				'wp-i18n',
 				'wp-html-entities',
 			),
-			'version'      => $this->version(),
+			'version'      => Config::VERSION,
 		);
-
-		$asset_path = $this->plugin_path( 'assets/js/frontend/blocks.asset.php' );
-		if ( file_exists( $asset_path ) ) {
-			$generated_asset = require $asset_path;
-			if ( is_array( $generated_asset ) ) {
-				if ( ! empty( $generated_asset['dependencies'] ) && is_array( $generated_asset['dependencies'] ) ) {
-					$asset['dependencies'] = array_values(
-						array_unique(
-							array_merge( $asset['dependencies'], $generated_asset['dependencies'] )
-						)
-					);
-				}
-
-				if ( ! empty( $generated_asset['version'] ) ) {
-					$asset['version'] = (string) $generated_asset['version'];
-				}
-			}
-		}
-
-		return $asset;
 	}
 
 	/**
@@ -383,7 +323,7 @@ final class Blocks_Support extends AbstractPaymentMethodType {
 	 */
 	private function __( $text ) {
 		if ( function_exists( '__' ) ) {
-			return __( $text, $this->text_domain() );
+			return __( $text, Config::TEXT_DOMAIN );
 		}
 
 		return $text;

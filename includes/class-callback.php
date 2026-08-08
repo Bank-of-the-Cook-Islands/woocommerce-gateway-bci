@@ -7,14 +7,6 @@ if (!defined('ABSPATH')) {
 	exit;
 }
 
-if (!class_exists(__NAMESPACE__ . '\Order_State') && is_readable(__DIR__ . '/class-order-state.php')) {
-	require_once __DIR__ . '/class-order-state.php';
-}
-
-if (!class_exists(__NAMESPACE__ . '\Payment_Resolution') && is_readable(__DIR__ . '/class-payment-resolution.php')) {
-	require_once __DIR__ . '/class-payment-resolution.php';
-}
-
 final class Callback {
 	/**
 	 * Lower-cased names of every parameter BPC is documented to send in
@@ -55,7 +47,7 @@ final class Callback {
 	 * Register /wp-json/bci-woo/v1/callback for BPC notifications.
 	 */
 	public static function register_route(): void {
-		register_rest_route(self::callback_namespace(), self::callback_route(), [
+		register_rest_route(Config::CALLBACK_NAMESPACE, Config::CALLBACK_ROUTE, [
 			'methods'             => ['GET', 'POST'],
 			'callback'            => [__CLASS__, 'handle'],
 			'permission_callback' => '__return_true',
@@ -63,17 +55,14 @@ final class Callback {
 	}
 
 	/**
-	 * Return the callback URL for display in merchant settings.
+	 * The URL BPC posts notifications to, for display in merchant settings.
+	 *
+	 * The route is registered above from the same two constants, so what the
+	 * settings screens tell a merchant to configure cannot drift from what this
+	 * plugin actually answers on.
 	 */
 	public static function get_callback_url(): string {
-		return rest_url(trim(self::callback_namespace(), '/') . self::callback_route());
-	}
-
-	/**
-	 * Back-compat camelCase alias for settings screens that prefer it.
-	 */
-	public static function getCallbackUrl(): string {
-		return self::get_callback_url();
+		return rest_url(trim(Config::CALLBACK_NAMESPACE, '/') . Config::CALLBACK_ROUTE);
 	}
 
 	/**
@@ -85,18 +74,18 @@ final class Callback {
 		$md_order     = self::first_scalar($params, ['mdOrder', 'mdorder', 'orderId']);
 
 		if ($order_number === '' && $md_order === '') {
-			self::log('notice', 'BCI callback rejected: missing orderNumber and mdOrder.');
+			Log::notice('BCI callback rejected: missing orderNumber and mdOrder.');
 			return new \WP_REST_Response(null, 400);
 		}
 
 		$tokens = self::callback_tokens();
 		if (empty($tokens)) {
-			self::log('notice', 'BCI callback rejected: no live or sandbox callback token is configured.');
+			Log::notice('BCI callback rejected: no live or sandbox callback token is configured.');
 			return new \WP_REST_Response(null, 403);
 		}
 
 		if (!self::verify_against_tokens($params, $tokens)) {
-			self::log('notice', 'BCI callback rejected: checksum verification failed.', [
+			Log::notice('BCI callback rejected: checksum verification failed.', [
 				'order_number' => self::safe_log_value($order_number),
 				'md_order'     => self::safe_log_value($md_order),
 			]);
@@ -105,7 +94,7 @@ final class Callback {
 
 		$order = self::find_order($order_number, $md_order);
 		if (!$order) {
-			self::log('notice', 'BCI callback order was not found.', [
+			Log::notice('BCI callback order was not found.', [
 				'order_number' => self::safe_log_value($order_number),
 				'md_order'     => self::safe_log_value($md_order),
 			]);
@@ -118,7 +107,7 @@ final class Callback {
 			$stored_md_order = $state->md_order();
 
 			if ($stored_md_order !== '' && !hash_equals($stored_md_order, $md_order)) {
-				self::log('notice', 'BCI callback rejected: mdOrder does not match order meta.', [
+				Log::notice('BCI callback rejected: mdOrder does not match order meta.', [
 					'order_id' => $order->get_id(),
 				]);
 				return new \WP_REST_Response(null, 400);
@@ -130,7 +119,7 @@ final class Callback {
 		}
 
 		if (!$state->is_resolvable()) {
-			self::log('notice', 'BCI callback cannot resolve status because the order has no mdOrder.', [
+			Log::notice('BCI callback cannot resolve status because the order has no mdOrder.', [
 				'order_id' => $order->get_id(),
 			]);
 			return new \WP_REST_Response(null, 200);
@@ -139,7 +128,7 @@ final class Callback {
 		// A callback is BPC announcing a change, so paid orders are answered too:
 		// that is how a refund or reversal taken in the merchant portal lands.
 		if (!Payment_Resolution::is_resolvable($order, true)) {
-			self::log('info', 'BCI callback ignored for order in terminal status.', [
+			Log::info('BCI callback ignored for order in terminal status.', [
 				'order_id' => $order->get_id(),
 				'status'   => $order->get_status(),
 			]);
@@ -152,7 +141,7 @@ final class Callback {
 			}
 			Payment_Resolution::resolve($order, Payment_Resolution::CALLBACK);
 		} catch (\Throwable $exception) {
-			self::log('error', 'BCI callback status resolution failed.', [
+			Log::error('BCI callback status resolution failed.', [
 				'order_id' => $order->get_id(),
 				'error'    => $exception->getMessage(),
 			]);
@@ -201,7 +190,7 @@ final class Callback {
 
 		foreach ($tokens as $token) {
 			if (self::verify_checksum($known, $token)) {
-				self::log('info', 'BCI callback checksum verified after ignoring non-BPC parameters.', [
+				Log::info('BCI callback checksum verified after ignoring non-BPC parameters.', [
 					'ignored' => implode(', ', array_map('strval', array_keys(array_diff_key($params, $known)))),
 				]);
 				return true;
@@ -270,7 +259,7 @@ final class Callback {
 
 	private static function find_order(string $order_number, string $md_order): ?\WC_Order {
 		if (!function_exists('wc_get_orders')) {
-			self::log('error', 'BCI callback cannot look up orders because WooCommerce is unavailable.');
+			Log::error('BCI callback cannot look up orders because WooCommerce is unavailable.');
 			return null;
 		}
 
@@ -316,59 +305,23 @@ final class Callback {
 	private static function is_bci_order(\WC_Order $order): bool {
 		$state = Order_State::for($order);
 
-		return $order->get_payment_method() === self::gateway_id()
+		return $order->get_payment_method() === Config::GATEWAY_ID
 			|| $state->order_number() !== ''
 			|| $state->is_resolvable();
 	}
 
+	/**
+	 * The signing tokens a callback may have been signed with.
+	 *
+	 * Both environments are accepted because a callback carries no environment:
+	 * a store that has switched to live can still be told about a sandbox order.
+	 */
 	private static function callback_tokens(): array {
-		$tokens = [];
-
-		if (is_callable([Api::class, 'callback_tokens'])) {
-			$api_tokens = Api::callback_tokens();
-			if (is_array($api_tokens)) {
-				$tokens = array_merge($tokens, $api_tokens);
-			}
-		}
-
-		$settings = self::gateway_settings();
-		$tokens[] = self::setting($settings, [
-			'live_callback_token',
-			'callback_token_live',
-			'live_callback_checksum_token',
-		]);
-		$tokens[] = self::setting($settings, [
-			'sandbox_callback_token',
-			'callback_token_sandbox',
-			'test_callback_token',
-			'sandbox_callback_checksum_token',
-		]);
-
 		$tokens = array_filter(array_map(static function ($token): string {
 			return is_scalar($token) ? trim((string) $token) : '';
-		}, $tokens));
+		}, Api::callback_tokens()));
 
 		return array_values(array_unique($tokens));
-	}
-
-	private static function gateway_settings(): array {
-		if (!function_exists('get_option')) {
-			return [];
-		}
-
-		$settings = get_option(self::settings_option_key(), []);
-
-		return is_array($settings) ? $settings : [];
-	}
-
-	private static function setting(array $settings, array $keys): string {
-		foreach ($keys as $key) {
-			if (isset($settings[$key]) && is_scalar($settings[$key])) {
-				return trim((string) $settings[$key]);
-			}
-		}
-
-		return '';
 	}
 
 	private static function first_scalar(array $params, array $keys): string {
@@ -383,41 +336,5 @@ final class Callback {
 
 	private static function safe_log_value(string $value): string {
 		return $value === '' ? '' : substr($value, 0, 80);
-	}
-
-	private static function callback_namespace(): string {
-		return (string) self::config_constant('CALLBACK_NAMESPACE', 'bci-woo/v1');
-	}
-
-	private static function callback_route(): string {
-		return (string) self::config_constant('CALLBACK_ROUTE', '/callback');
-	}
-
-	private static function gateway_id(): string {
-		return (string) self::config_constant('GATEWAY_ID', 'bci_takuecom');
-	}
-
-	private static function settings_option_key(): string {
-		return (string) self::config_constant('OPTION_KEY', 'woocommerce_' . self::gateway_id() . '_settings');
-	}
-
-	private static function config_constant(string $name, $default) {
-		$constant = Config::class . '::' . $name;
-
-		return defined($constant) ? constant($constant) : $default;
-	}
-
-	private static function log(string $level, string $message, array $context = []): void {
-		if (class_exists(Log::class) && is_callable([Log::class, $level])) {
-			call_user_func([Log::class, $level], $message, $context);
-			return;
-		}
-
-		if (function_exists('wc_get_logger')) {
-			$logger = wc_get_logger();
-			if (is_callable([$logger, $level])) {
-				$logger->{$level}($message, array_merge(['source' => 'BCI_Woo_Plugin'], $context));
-			}
-		}
 	}
 }

@@ -57,6 +57,26 @@ final class Config
     }
 
     /**
+     * A scalar reduced to the plain text this plugin is willing to store or send.
+     *
+     * Gateway payloads, order meta and callback parameters all arrive as loosely
+     * typed values, and every module that reads one wants the same thing from it:
+     * a trimmed, tag-free string, with anything that is not scalar treated as
+     * nothing said. Keeping one copy is what stops a value being clean enough for
+     * one reader and not for another.
+     *
+     * @param mixed $value
+     */
+    public static function clean($value): string
+    {
+        if (is_array($value) || is_object($value)) {
+            return '';
+        }
+
+        return sanitize_text_field(trim((string) $value));
+    }
+
+    /**
      * Mask a card label so that no run of digits leaves more than four readable.
      *
      * BPC normally returns an already masked pan, but the raw `pan` field is used

@@ -45,25 +45,15 @@ final class Plugin
 
         add_filter('woocommerce_payment_gateways', [$this, 'add_gateway']);
 
-        if (class_exists(__NAMESPACE__ . '\Callback')) {
-            Callback::register();
-        }
-
-        if (class_exists(__NAMESPACE__ . '\Scheduler')) {
-            Scheduler::register();
-        }
+        Callback::register();
+        Scheduler::register();
 
         if (is_admin()) {
             add_action('admin_notices', [$this, 'gateway_unavailable_notice']);
-
-            if (class_exists(__NAMESPACE__ . '\Admin')) {
-                Admin::init();
-            }
+            Admin::init();
         }
 
-        if (class_exists(__NAMESPACE__ . '\Subscriptions')) {
-            (new Subscriptions())->register_hooks();
-        }
+        (new Subscriptions())->register_hooks();
     }
 
     public function add_gateway(array $gateways): array
@@ -78,16 +68,7 @@ final class Plugin
             return;
         }
 
-        $file = Config::plugin_path('includes/blocks/class-blocks-support.php');
-        if (!file_exists($file)) {
-            return;
-        }
-
-        require_once $file;
-
-        if (!class_exists(__NAMESPACE__ . '\Blocks_Support')) {
-            return;
-        }
+        require_once Config::plugin_path('includes/blocks/class-blocks-support.php');
 
         add_action(
             'woocommerce_blocks_payment_method_type_registration',
@@ -137,7 +118,6 @@ final class Plugin
     private function require_foundation_files(): void
     {
         require_once Config::plugin_path('includes/class-log.php');
-        require_once Config::plugin_path('includes/class-exception.php');
         require_once Config::plugin_path('includes/class-api.php');
         require_once Config::plugin_path('includes/class-order-state.php');
         require_once Config::plugin_path('includes/class-resolution.php');
@@ -147,6 +127,14 @@ final class Plugin
         require_once Config::plugin_path('includes/class-registration.php');
     }
 
+    /**
+     * The modules that only exist once WooCommerce does.
+     *
+     * Load order is the declaration order: nothing here runs at include time, so
+     * a module may name another that is loaded after it. Every module below is
+     * loaded unconditionally, which is what lets each of them call the others by
+     * name rather than probing for them.
+     */
     private function require_optional_files(): void
     {
         $files = [
@@ -159,10 +147,7 @@ final class Plugin
         ];
 
         foreach ($files as $file) {
-            $path = Config::plugin_path($file);
-            if (file_exists($path)) {
-                require_once $path;
-            }
+            require_once Config::plugin_path($file);
         }
     }
 }

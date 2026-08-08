@@ -56,14 +56,4 @@ final class Resolution
         $this->reason = $reason;
     }
 
-    /**
-     * Whether the gateway told us which state the order is in.
-     *
-     * False only for the two payload faults — an error code, or a response with
-     * no orderStatus — where there is no gateway state to write to the order.
-     */
-    public function has_order_status(): bool
-    {
-        return $this->order_status !== self::NO_ORDER_STATUS;
-    }
 }

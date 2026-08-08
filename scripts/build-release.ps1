@@ -39,7 +39,8 @@ try {
         assets `
         includes `
         readme.txt `
-        woocommerce-gateway-bci.php
+        woocommerce-gateway-bci.php `
+        docs/merchant-setup-guide.md
 
     if ($LASTEXITCODE -ne 0) {
         throw "Failed to build release archive for '$Ref'."

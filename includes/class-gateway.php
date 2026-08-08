@@ -6,18 +6,6 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-if (!class_exists(__NAMESPACE__ . '\Order_State') && is_readable(__DIR__ . '/class-order-state.php')) {
-    require_once __DIR__ . '/class-order-state.php';
-}
-
-if (!class_exists(__NAMESPACE__ . '\Payment_Resolution') && is_readable(__DIR__ . '/class-payment-resolution.php')) {
-    require_once __DIR__ . '/class-payment-resolution.php';
-}
-
-if (!class_exists(__NAMESPACE__ . '\Registration') && is_readable(__DIR__ . '/class-registration.php')) {
-    require_once __DIR__ . '/class-registration.php';
-}
-
 final class Gateway extends \WC_Payment_Gateway
 {
     private Api $api;
@@ -35,7 +23,7 @@ final class Gateway extends \WC_Payment_Gateway
         // Subscription behaviour is decided here and at the two other registration
         // sites (the renewal hooks below, and Subscriptions::register_hooks()). What
         // gets registered while the setting is on is not asked to re-check it later.
-        if (Api::subscriptions_enabled() && class_exists(__NAMESPACE__ . '\Subscriptions')) {
+        if (Api::subscriptions_enabled()) {
             $this->supports = (new Subscriptions($this))->merge_supports($this->supports);
         }
 
@@ -52,7 +40,7 @@ final class Gateway extends \WC_Payment_Gateway
         add_action('woocommerce_update_options_payment_gateways_' . $this->id, [$this, 'process_admin_options']);
         add_action('woocommerce_api_bci_takuecom_return', [$this, 'handle_return']);
 
-        if (Api::subscriptions_enabled() && class_exists(__NAMESPACE__ . '\Renewals')) {
+        if (Api::subscriptions_enabled()) {
             (new Renewals($this, $this->api, $this->resolver))->register_hooks();
         }
     }
@@ -237,14 +225,9 @@ final class Gateway extends \WC_Payment_Gateway
         echo '<h2>' . esc_html($this->get_method_title()) . '</h2>';
         echo '<p>' . esc_html__('Configure BCI TakuEcom payments. Start in sandbox, test a payment, then repeat the callback setup for live credentials before processing real orders.', Config::TEXT_DOMAIN) . '</p>';
 
-        if (class_exists(__NAMESPACE__ . '\Admin')) {
-            $admin = new Admin();
-            if (method_exists($admin, 'generate_bci_guided_setup_html')) {
-                echo '<table class="form-table bci-woo-guided-setup-table">';
-                echo $admin->generate_bci_guided_setup_html('guided_setup', []); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
-                echo '</table>';
-            }
-        }
+        echo '<table class="form-table bci-woo-guided-setup-table">';
+        echo (new Admin())->generate_bci_guided_setup_html('guided_setup', []); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+        echo '</table>';
 
         echo '<table class="form-table">';
         $this->generate_settings_html();
@@ -253,7 +236,7 @@ final class Gateway extends \WC_Payment_Gateway
 
     public function generate_bci_callback_url_html($key, $data): string
     {
-        $callback_url = rest_url(Config::CALLBACK_NAMESPACE . Config::CALLBACK_ROUTE);
+        $callback_url = Callback::get_callback_url();
 
         ob_start();
         ?>
@@ -321,11 +304,7 @@ final class Gateway extends \WC_Payment_Gateway
 
     public function generate_bci_subscription_readiness_html($key, $data): string
     {
-        if (class_exists(__NAMESPACE__ . '\Admin')) {
-            return (new Admin())->generate_bci_subscription_readiness_html((string) $key, (array) $data, $this);
-        }
-
-        return '';
+        return (new Admin())->generate_bci_subscription_readiness_html((string) $key, (array) $data, $this);
     }
 
     public function is_available(): bool

@@ -23,6 +23,10 @@ namespace {
         return $bci_test_options[$key] ?? $default;
     }
 
+    function sanitize_text_field($value)
+    {
+        return trim(strip_tags((string) $value));
+    }
     function wc_get_orders(array $args): array
     {
         global $bci_test_orders;
@@ -124,6 +128,10 @@ namespace BCI\Woo {
         }
     }
 
+    require dirname(__DIR__) . '/includes/class-config.php';
+    require dirname(__DIR__) . '/includes/class-api.php';
+    require dirname(__DIR__) . '/includes/class-order-state.php';
+    require dirname(__DIR__) . '/includes/class-payment-resolution.php';
     require dirname(__DIR__) . '/includes/class-scheduler.php';
     require dirname(__DIR__) . '/includes/class-admin.php';
 

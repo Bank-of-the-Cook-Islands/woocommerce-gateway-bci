@@ -9,22 +9,6 @@ namespace BCI\Woo;
 
 defined('ABSPATH') || exit;
 
-if (!class_exists(__NAMESPACE__ . '\Order_State') && is_readable(__DIR__ . '/class-order-state.php')) {
-	require_once __DIR__ . '/class-order-state.php';
-}
-
-if (!class_exists(__NAMESPACE__ . '\Tokens') && is_readable(__DIR__ . '/class-tokens.php')) {
-	require_once __DIR__ . '/class-tokens.php';
-}
-
-if (!class_exists(__NAMESPACE__ . '\Subscriptions') && is_readable(__DIR__ . '/class-subscriptions.php')) {
-	require_once __DIR__ . '/class-subscriptions.php';
-}
-
-if (!class_exists(__NAMESPACE__ . '\Registration') && is_readable(__DIR__ . '/class-registration.php')) {
-	require_once __DIR__ . '/class-registration.php';
-}
-
 final class Renewals {
 	/** @var object|null */
 	private $gateway;
@@ -88,7 +72,7 @@ final class Renewals {
 		$renewal_order = $this->maybe_order($renewal_order);
 
 		if (!$renewal_order) {
-			$this->log('error', 'BCI renewal failed before charging: renewal order was not available.');
+			Log::error('BCI renewal failed before charging: renewal order was not available.');
 			return;
 		}
 
@@ -99,7 +83,7 @@ final class Renewals {
 			$token_data = array_merge($token_data, $this->tokens->token_data_from_order($renewal_order));
 		}
 
-		$binding_id = $this->clean($token_data['binding_id'] ?? '');
+		$binding_id = Config::clean($token_data['binding_id'] ?? '');
 		if ($binding_id === '') {
 			$this->fail_order(
 				$renewal_order,
@@ -121,12 +105,12 @@ final class Renewals {
 			'description' => $this->safe_description($renewal_order),
 		];
 
-		$client_id = $this->clean($token_data['client_id'] ?? '');
+		$client_id = Config::clean($token_data['client_id'] ?? '');
 		if ($client_id !== '') {
 			$params['clientId'] = $client_id;
 		}
 
-		$email = $this->clean($renewal_order->get_billing_email());
+		$email = Config::clean($renewal_order->get_billing_email());
 		if ($email !== '') {
 			$params['additionalParameters'] = ['email' => $email];
 		}
@@ -166,7 +150,7 @@ final class Renewals {
 		// and bci_woo_payment_status_resolved hook as any other payment.
 		$resolution = $this->resolver->resolve($renewal_order, 'subscription renewal');
 
-		$this->log('info', 'Processed BCI subscription renewal.', [
+		Log::info('Processed BCI subscription renewal.', [
 			'order_id'    => $renewal_order->get_id(),
 			'md_order'    => $md_order,
 			'resolution'  => $resolution,
@@ -211,23 +195,23 @@ final class Renewals {
 
 	private function result_error_message(array $result): string {
 		$error = $result['error'] ?? null;
-		$message = is_array($error) ? $this->clean($error['message'] ?? '') : '';
+		$message = is_array($error) ? Config::clean($error['message'] ?? '') : '';
 
 		if ($message === '') {
-			$message = $this->clean($result['errorMessage'] ?? '');
+			$message = Config::clean($result['errorMessage'] ?? '');
 		}
 
 		if ($message === '') {
-			$message = $this->clean($result['data']['errorMessage'] ?? '');
+			$message = Config::clean($result['data']['errorMessage'] ?? '');
 		}
 
 		$status = $this->embedded_order_status($result);
 		if ($message === '' && $status !== []) {
-			$message = $this->clean($status['errorMessage'] ?? '');
+			$message = Config::clean($status['errorMessage'] ?? '');
 		}
 
 		if ($message === '' && is_string($error)) {
-			$message = $this->clean($error);
+			$message = Config::clean($error);
 		}
 
 		if ($message === '') {
@@ -238,7 +222,7 @@ final class Renewals {
 	}
 
 	private function fail_order(\WC_Order $order, string $message): void {
-		$message = $this->clean($message);
+		$message = Config::clean($message);
 		if ($message === '') {
 			$message = __('BCI renewal failed.', 'bci-woo');
 		}
@@ -249,11 +233,9 @@ final class Renewals {
 			$this->add_order_note($order, $message);
 		}
 
-		if (method_exists($order, 'save')) {
-			$order->save();
-		}
+		$order->save();
 
-		$this->log('notice', 'BCI subscription renewal failed.', [
+		Log::notice('BCI subscription renewal failed.', [
 			'order_id' => $order->get_id(),
 			'message'  => $message,
 		]);
@@ -271,7 +253,7 @@ final class Renewals {
 		foreach ($paths as $path) {
 			$value = $this->array_get($result, $path);
 			if ($value !== null && $value !== '') {
-				return $this->clean($value);
+				return Config::clean($value);
 			}
 		}
 
@@ -282,7 +264,7 @@ final class Renewals {
 			}
 
 			if (($attribute['name'] ?? '') === 'mdOrder' && !empty($attribute['value'])) {
-				return $this->clean($attribute['value']);
+				return Config::clean($attribute['value']);
 			}
 		}
 
@@ -316,44 +298,12 @@ final class Renewals {
 	/**
 	 * The numeric currency for a charge addressed to $environment.
 	 *
-	 * Api is asked first and asked about that environment: the currency has to
-	 * match the host the charge is sent to, and the gateway's own helper answers
-	 * for the environment the store is configured for today, which for a renewal
-	 * is not necessarily the environment its binding lives in.
+	 * Api is asked, and asked about that environment: the currency has to match
+	 * the host the charge is sent to, which for a renewal is the environment its
+	 * binding lives in rather than the one the store is configured for today.
 	 */
 	private function currency_to_numeric(string $currency, string $environment): string {
-		if (\class_exists(Api::class) && \is_callable([Api::class, 'payment_currency_to_numeric'])) {
-			return Api::payment_currency_to_numeric($currency, $environment);
-		}
-
-		if (is_object($this->gateway) && is_callable([$this->gateway, 'currency_to_numeric'])) {
-			try {
-				$value = $this->gateway->currency_to_numeric($currency);
-				if ($value !== '') {
-					return (string) $value;
-				}
-			} catch (\Throwable $e) {
-				// Use local fallback map.
-			}
-		}
-
-		$map = [
-			'NZD' => '554',
-			'EUR' => '978',
-		];
-
-		$currency = strtoupper($currency);
-		if ($currency === 'EUR') {
-			return $map['EUR'];
-		}
-
-		if ($currency !== '' && $currency !== 'NZD') {
-			$this->log('notice', 'BCI TakuEcom renewals are fixed to NZD; ignoring WooCommerce renewal currency.', [
-				'currency' => $currency,
-			]);
-		}
-
-		return $map['NZD'];
+		return Api::payment_currency_to_numeric($currency, $environment);
 	}
 
 	private function build_order_number(\WC_Order $order): string {
@@ -388,11 +338,7 @@ final class Renewals {
 			return (string) $this->gateway->id;
 		}
 
-		if (\class_exists(Config::class) && \defined(Config::class . '::GATEWAY_ID')) {
-			return (string) Config::GATEWAY_ID;
-		}
-
-		return 'bci_takuecom';
+		return Config::GATEWAY_ID;
 	}
 
 	private function array_get(array $source, string $path) {
@@ -406,31 +352,5 @@ final class Renewals {
 		}
 
 		return $current;
-	}
-
-	private function clean($value): string {
-		if (is_array($value) || is_object($value)) {
-			return '';
-		}
-
-		$value = trim((string) $value);
-
-		if (\function_exists('sanitize_text_field')) {
-			return sanitize_text_field($value);
-		}
-
-		return trim(strip_tags($value));
-	}
-
-	private function log(string $level, string $message, array $context = []): void {
-		if (!\class_exists(Log::class) || !\method_exists(Log::class, $level)) {
-			return;
-		}
-
-		try {
-			\call_user_func([Log::class, $level], $message, $context);
-		} catch (\Throwable $e) {
-			// Logging must never break scheduled renewal processing.
-		}
 	}
 }

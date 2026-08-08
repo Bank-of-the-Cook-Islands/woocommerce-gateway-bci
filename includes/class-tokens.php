@@ -9,14 +9,6 @@ namespace BCI\Woo;
 
 defined('ABSPATH') || exit;
 
-if (!class_exists(__NAMESPACE__ . '\Order_State') && is_readable(__DIR__ . '/class-order-state.php')) {
-	require_once __DIR__ . '/class-order-state.php';
-}
-
-if (!class_exists(__NAMESPACE__ . '\Api') && is_readable(__DIR__ . '/class-api.php')) {
-	require_once __DIR__ . '/class-api.php';
-}
-
 final class Tokens {
 	/** @var string */
 	private $gateway_id;
@@ -25,16 +17,8 @@ final class Tokens {
 		$this->gateway_id = $gateway_id !== '' ? $gateway_id : self::default_gateway_id();
 	}
 
-	public static function store_from_order_and_status(\WC_Order $order, array $status): bool {
-		return (new self())->capture_from_status($order, $status, Order_State::for($order)->client_id());
-	}
-
 	public static function default_gateway_id(): string {
-		if (\class_exists(Config::class) && \defined(Config::class . '::GATEWAY_ID')) {
-			return (string) Config::GATEWAY_ID;
-		}
-
-		return 'bci_takuecom';
+		return Config::GATEWAY_ID;
 	}
 
 	/**
@@ -48,7 +32,7 @@ final class Tokens {
 	 * The caller decides whether the order wants a stored credential at all.
 	 */
 	public function add_binding_params(array $params, \WC_Order $order): array {
-		$client_id = $this->clean($params['clientId'] ?? '');
+		$client_id = Config::clean($params['clientId'] ?? '');
 		if ($client_id === '') {
 			$client_id = $this->client_id_for_order($order);
 		}
@@ -196,8 +180,8 @@ final class Tokens {
 		}
 
 		if (($token_data['binding_id'] ?? '') !== '') {
-			$this->log('info', 'Stored BCI binding metadata for order.', [
-				'order_id' => method_exists($order, 'get_id') ? $order->get_id() : null,
+			Log::info('Stored BCI binding metadata for order.', [
+				'order_id' => $order->get_id(),
 			]);
 		}
 
@@ -317,7 +301,7 @@ final class Tokens {
 
 			return (int) $token->save();
 		} catch (\Throwable $e) {
-			$this->log('notice', 'Could not create WooCommerce payment token for BCI binding.', [
+			Log::notice('Could not create WooCommerce payment token for BCI binding.', [
 				'order_id' => $order->get_id(),
 				'error'    => $e->getMessage(),
 			]);
@@ -344,7 +328,7 @@ final class Tokens {
 
 		$state->note_binding_missing()->save();
 
-		$this->log('notice', 'BCI subscription payment completed without a binding ID.', [
+		Log::notice('BCI subscription payment completed without a binding ID.', [
 			'order_id' => $order->get_id(),
 		]);
 	}
@@ -366,7 +350,7 @@ final class Tokens {
 		$features = [];
 
 		foreach (is_array($existing) ? $existing : [$existing] as $value) {
-			$value = $this->clean($value);
+			$value = Config::clean($value);
 			if ($value === '') {
 				continue;
 			}
@@ -389,11 +373,11 @@ final class Tokens {
 		foreach ($paths as $path) {
 			$value = $this->array_get($source, $path);
 			if ($value !== null && $value !== '') {
-				return $this->clean($value);
+				return Config::clean($value);
 			}
 		}
 
-		return $this->clean($fallback);
+		return Config::clean($fallback);
 	}
 
 	private function array_get(array $source, string $path) {
@@ -410,13 +394,13 @@ final class Tokens {
 	}
 
 	private function last4_from_mask($value): string {
-		$digits = preg_replace('/\D+/', '', $this->clean($value));
+		$digits = preg_replace('/\D+/', '', Config::clean($value));
 
 		return strlen($digits) >= 4 ? substr($digits, -4) : '';
 	}
 
 	private function normalise_card_type($value): string {
-		$value = strtolower($this->clean($value));
+		$value = strtolower(Config::clean($value));
 
 		$map = [
 			'mastercard' => 'mastercard',
@@ -430,20 +414,6 @@ final class Tokens {
 		return $map[$value] ?? '';
 	}
 
-	private function clean($value): string {
-		if (is_array($value) || is_object($value)) {
-			return '';
-		}
-
-		$value = trim((string) $value);
-
-		if (\function_exists('sanitize_text_field')) {
-			return sanitize_text_field($value);
-		}
-
-		return trim(strip_tags($value));
-	}
-
 	private function site_url_for_hash(): string {
 		if (\function_exists('home_url')) {
 			return (string) home_url();
@@ -454,17 +424,5 @@ final class Tokens {
 		}
 
 		return '';
-	}
-
-	private function log(string $level, string $message, array $context = []): void {
-		if (!\class_exists(Log::class) || !\method_exists(Log::class, $level)) {
-			return;
-		}
-
-		try {
-			\call_user_func([Log::class, $level], $message, $context);
-		} catch (\Throwable $e) {
-			// Logging must never break payment processing.
-		}
 	}
 }

@@ -121,8 +121,15 @@ namespace {
 }
 
 namespace BCI\Woo {
+    /** Stands in for the plugin logger the bootstrap always loads. */
+    final class Log
+    {
+        public static function __callStatic(string $level, array $args): void {}
+    }
+
     require dirname(__DIR__) . '/includes/class-config.php';
     require dirname(__DIR__) . '/includes/class-api.php';
+    require dirname(__DIR__) . '/includes/class-order-state.php';
     require dirname(__DIR__) . '/includes/class-tokens.php';
     require dirname(__DIR__) . '/includes/class-subscriptions.php';
 

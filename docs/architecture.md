@@ -54,7 +54,7 @@ Plugin header:
 
 ```text
 Plugin Name: TakuEcom - BCI Payments for WooCommerce
-Version: 1.0.0
+Version: 1.0.2
 Text Domain: bci-woo
 Requires Plugins: woocommerce
 WC requires at least: 4.0
@@ -94,7 +94,6 @@ woocommerce-gateway-bci/
 │   ├── class-api.php
 │   ├── class-callback.php
 │   ├── class-config.php
-│   ├── class-exception.php
 │   ├── class-gateway.php
 │   ├── class-log.php
 │   ├── class-order-state.php
@@ -134,7 +133,7 @@ woocommerce-gateway-bci/
 `Config` centralises the stable release constants:
 
 ```php
-VERSION = '1.0.0'
+VERSION = '1.0.2'
 TEXT_DOMAIN = 'bci-woo'
 GATEWAY_ID = 'bci_takuecom'
 LOG_SOURCE = 'BCI_Woo_Plugin'

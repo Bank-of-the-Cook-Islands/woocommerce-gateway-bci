@@ -12,6 +12,7 @@ namespace {
 }
 
 namespace BCI\Woo {
+    require_once dirname(__DIR__) . '/includes/class-config.php';
     require_once dirname(__DIR__) . '/includes/class-tokens.php';
     require_once dirname(__DIR__) . '/includes/class-api.php';
 

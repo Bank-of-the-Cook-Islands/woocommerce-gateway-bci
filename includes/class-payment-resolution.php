@@ -6,14 +6,6 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-if (!class_exists(__NAMESPACE__ . '\Order_State') && is_readable(__DIR__ . '/class-order-state.php')) {
-    require_once __DIR__ . '/class-order-state.php';
-}
-
-if (!class_exists(__NAMESPACE__ . '\Status_Resolver') && is_readable(__DIR__ . '/class-status-resolver.php')) {
-    require_once __DIR__ . '/class-status-resolver.php';
-}
-
 /**
  * The one way this plugin asks BPC what happened to a payment.
  *

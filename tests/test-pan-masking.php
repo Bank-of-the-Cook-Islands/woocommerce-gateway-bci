@@ -46,6 +46,12 @@ namespace {
 }
 
 namespace BCI\Woo {
+    /** Stands in for the plugin logger the bootstrap always loads. */
+    final class Log
+    {
+        public static function __callStatic(string $level, array $args): void {}
+    }
+
     /** Order state asks the plugin which environment a payment belongs to. */
     final class Api
     {
@@ -62,6 +68,8 @@ namespace BCI\Woo {
     }
 
     require dirname(__DIR__) . '/includes/class-config.php';
+    require dirname(__DIR__) . '/includes/class-order-state.php';
+    require dirname(__DIR__) . '/includes/class-resolution.php';
     require dirname(__DIR__) . '/includes/class-tokens.php';
     require dirname(__DIR__) . '/includes/class-status-resolver.php';
 
@@ -178,6 +186,19 @@ namespace BCI\Woo {
         (string) $label_resolver_order->meta['_bci_woo_masked_pan'],
         'maybe_store_binding masks a label carrying an expiry'
     );
+
+    // Config::clean() is the one canonical sanitiser since the cleanup sweep;
+    // the array/object guard is the behaviour the deleted copies uniquely
+    // carried, so it gets pinned here next to the class's other tests.
+    if (Config::clean(['an', 'array']) !== '') {
+        throw new \RuntimeException('Config::clean must flatten an array to an empty string');
+    }
+    if (Config::clean(new \stdClass()) !== '') {
+        throw new \RuntimeException('Config::clean must flatten an object to an empty string');
+    }
+    if (Config::clean('  padded text  ') !== 'padded text') {
+        throw new \RuntimeException('Config::clean must trim scalar input');
+    }
 
     echo "Pan masking tests passed.\n";
 }

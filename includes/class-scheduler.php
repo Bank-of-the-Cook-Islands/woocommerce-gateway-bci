@@ -7,21 +7,9 @@ if (!defined('ABSPATH')) {
 	exit;
 }
 
-if (!class_exists(__NAMESPACE__ . '\Order_State') && is_readable(__DIR__ . '/class-order-state.php')) {
-	require_once __DIR__ . '/class-order-state.php';
-}
-
-if (!class_exists(__NAMESPACE__ . '\Payment_Resolution') && is_readable(__DIR__ . '/class-payment-resolution.php')) {
-	require_once __DIR__ . '/class-payment-resolution.php';
-}
-
 final class Scheduler {
 	public const HOOK = 'bci_woo_check_pending_orders';
 	public const GROUP = 'bci-woo';
-	public const INTERVAL_SECONDS = 300;
-	public const PENDING_THRESHOLD_MINUTES = 10;
-	public const FAILED_LOOKBACK_MINUTES = 60;
-	public const CANCELLATION_HOLD_MAX_MINUTES = 1440;
 
 	/**
 	 * Register the Action Scheduler hook and recurring action.
@@ -47,13 +35,6 @@ final class Scheduler {
 	}
 
 	/**
-	 * CamelCase alias for bootstrap code that follows older plugin style.
-	 */
-	public static function scheduleRecurringAction(): void {
-		self::schedule_recurring_action();
-	}
-
-	/**
 	 * Clear recurring actions on plugin deactivation.
 	 */
 	public static function deactivate(): void {
@@ -71,7 +52,7 @@ final class Scheduler {
 	 */
 	public static function check_pending_orders(array $args = []): int {
 		if (!function_exists('wc_get_orders')) {
-			self::log('error', 'BCI scheduler cannot look up orders because WooCommerce is unavailable.');
+			Log::error('BCI scheduler cannot look up orders because WooCommerce is unavailable.');
 			return 0;
 		}
 
@@ -115,7 +96,7 @@ final class Scheduler {
 				Payment_Resolution::resolve($order, Payment_Resolution::SCHEDULED_CHECK);
 				$checked++;
 			} catch (\Throwable $exception) {
-				self::log('error', 'BCI scheduled status check failed.', [
+				Log::error('BCI scheduled status check failed.', [
 					'order_id' => $order->get_id(),
 					'error'    => $exception->getMessage(),
 				]);
@@ -123,13 +104,6 @@ final class Scheduler {
 		}
 
 		return $checked;
-	}
-
-	/**
-	 * CamelCase alias for manual admin actions that follow older plugin style.
-	 */
-	public static function checkPendingOrders(array $args = []): int {
-		return self::check_pending_orders($args);
 	}
 
 	/**
@@ -149,7 +123,7 @@ final class Scheduler {
 			return $cancel;
 		}
 
-		if ($order->get_payment_method() !== self::gateway_id()
+		if ($order->get_payment_method() !== Config::GATEWAY_ID
 			|| !Payment_Resolution::is_resolvable($order)
 		) {
 			return $cancel;
@@ -158,7 +132,7 @@ final class Scheduler {
 		try {
 			$resolution = Payment_Resolution::resolve($order, Payment_Resolution::CANCELLATION_CHECK);
 		} catch (\Throwable $exception) {
-			self::log('error', 'BCI status check before unpaid-order cancellation failed.', [
+			Log::error('BCI status check before unpaid-order cancellation failed.', [
 				'order_id' => $order->get_id(),
 				'error'    => $exception->getMessage(),
 			]);
@@ -172,7 +146,7 @@ final class Scheduler {
 		}
 
 		$gateway_status = Order_State::for($order)->last_status();
-		if ($resolution === 'pending' && $gateway_status === (int) self::config_constant('STATUS_REGISTERED', 0)) {
+		if ($resolution === 'pending' && $gateway_status === Config::STATUS_REGISTERED) {
 			// Registered with no payment attempt in flight: the customer abandoned
 			// the hosted form. Cancelling is safe, and a late callback can still
 			// recover the order because Callback also resolves cancelled orders.
@@ -186,7 +160,7 @@ final class Scheduler {
 			return $cancel;
 		}
 
-		self::log('info', 'BCI unpaid-order cancellation held until the gateway confirms the payment state.', [
+		Log::info('BCI unpaid-order cancellation held until the gateway confirms the payment state.', [
 			'order_id'   => $order->get_id(),
 			'resolution' => $resolution,
 		]);
@@ -202,7 +176,7 @@ final class Scheduler {
 			return true;
 		}
 
-		$max_minutes = max(1, (int) self::config_constant('CANCELLATION_HOLD_MAX_MINUTES', self::CANCELLATION_HOLD_MAX_MINUTES));
+		$max_minutes = max(1, Config::CANCELLATION_HOLD_MAX_MINUTES);
 
 		return (time() - $timestamp) > $max_minutes * MINUTE_IN_SECONDS;
 	}
@@ -211,7 +185,7 @@ final class Scheduler {
 		$orders = wc_get_orders(array_merge([
 			'return'         => 'objects',
 			'type'           => 'shop_order',
-			'payment_method' => self::gateway_id(),
+			'payment_method' => Config::GATEWAY_ID,
 			'meta_query'     => [
 				Order_State::gateway_reference_query(),
 			],
@@ -235,45 +209,32 @@ final class Scheduler {
 	}
 
 	private static function pending_threshold_minutes(): int {
-		return self::settings_int([
-			'pending_threshold_minutes',
-			'callback_pending_threshold_minutes',
-		], (int) self::config_constant('PENDING_THRESHOLD_MINUTES', self::PENDING_THRESHOLD_MINUTES), 1);
+		return self::settings_int('pending_threshold_minutes', Config::PENDING_THRESHOLD_MINUTES, 1);
 	}
 
 	private static function failed_lookback_minutes(): int {
-		return self::settings_int([
-			'failed_recovery_lookback_minutes',
-			'failed_lookback_minutes',
-		], (int) self::config_constant('FAILED_LOOKBACK_MINUTES', self::FAILED_LOOKBACK_MINUTES), 0);
+		return self::settings_int('failed_lookback_minutes', Config::FAILED_LOOKBACK_MINUTES, 0);
 	}
 
 	private static function batch_size(): int {
-		$batch_size = (int) self::config_constant('SCHEDULER_BATCH_SIZE', 50);
-
-		return max(1, $batch_size);
+		return max(1, Config::SCHEDULER_BATCH_SIZE);
 	}
 
 	private static function interval_seconds(): int {
-		$interval = (int) self::config_constant('SCHEDULER_INTERVAL_SECONDS', self::INTERVAL_SECONDS);
-
-		return max(60, $interval);
+		return max(60, Config::SCHEDULER_INTERVAL_SECONDS);
 	}
 
-	private static function settings_int(array $keys, int $default, int $minimum): int {
-		if (!function_exists('get_option')) {
-			return $default;
-		}
+	/**
+	 * A saved settings value, floored, or $default when the merchant has none.
+	 *
+	 * The key is one the gateway's settings schema actually produces; a key no
+	 * form field writes could only ever answer with its default.
+	 */
+	private static function settings_int(string $key, int $default, int $minimum): int {
+		$settings = Api::settings();
 
-		$settings = get_option(self::settings_option_key(), []);
-		if (!is_array($settings)) {
-			return $default;
-		}
-
-		foreach ($keys as $key) {
-			if (isset($settings[$key]) && is_numeric($settings[$key])) {
-				return max($minimum, (int) $settings[$key]);
-			}
+		if (isset($settings[$key]) && is_numeric($settings[$key])) {
+			return max($minimum, (int) $settings[$key]);
 		}
 
 		return $default;
@@ -285,33 +246,5 @@ final class Scheduler {
 		}
 
 		return $default;
-	}
-
-	private static function gateway_id(): string {
-		return (string) self::config_constant('GATEWAY_ID', 'bci_takuecom');
-	}
-
-	private static function settings_option_key(): string {
-		return (string) self::config_constant('OPTION_KEY', 'woocommerce_' . self::gateway_id() . '_settings');
-	}
-
-	private static function config_constant(string $name, $default) {
-		$constant = Config::class . '::' . $name;
-
-		return defined($constant) ? constant($constant) : $default;
-	}
-
-	private static function log(string $level, string $message, array $context = []): void {
-		if (class_exists(Log::class) && is_callable([Log::class, $level])) {
-			call_user_func([Log::class, $level], $message, $context);
-			return;
-		}
-
-		if (function_exists('wc_get_logger')) {
-			$logger = wc_get_logger();
-			if (is_callable([$logger, $level])) {
-				$logger->{$level}($message, array_merge(['source' => 'BCI_Woo_Plugin'], $context));
-			}
-		}
 	}
 }

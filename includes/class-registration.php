@@ -6,14 +6,6 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-if (!class_exists(__NAMESPACE__ . '\Order_State') && is_readable(__DIR__ . '/class-order-state.php')) {
-    require_once __DIR__ . '/class-order-state.php';
-}
-
-if (!class_exists(__NAMESPACE__ . '\Registration_Result') && is_readable(__DIR__ . '/class-registration-result.php')) {
-    require_once __DIR__ . '/class-registration-result.php';
-}
-
 /**
  * Registering a one-off payment at BPC: the request, the answer, and what the
  * order is left holding.

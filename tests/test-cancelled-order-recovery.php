@@ -14,6 +14,10 @@ namespace {
         return $bci_test_options[$key] ?? $default;
     }
 
+    function sanitize_text_field($value)
+    {
+        return trim(strip_tags((string) $value));
+    }
     function apply_filters(string $hook, $value)
     {
         return $value;
@@ -129,6 +133,9 @@ namespace BCI\Woo {
         }
     }
 
+    require dirname(__DIR__) . '/includes/class-config.php';
+    require dirname(__DIR__) . '/includes/class-order-state.php';
+    require dirname(__DIR__) . '/includes/class-payment-resolution.php';
     require dirname(__DIR__) . '/includes/class-scheduler.php';
     require dirname(__DIR__) . '/includes/class-callback.php';
 

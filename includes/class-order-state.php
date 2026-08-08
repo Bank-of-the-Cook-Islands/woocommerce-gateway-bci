@@ -183,9 +183,9 @@ final class Order_State
     public function record_registration(string $md_order, string $order_number, string $environment, string $client_id = ''): self
     {
         $this->record_md_order($md_order);
-        $this->write(self::META_ORDER_NUMBER, $this->clean($order_number));
+        $this->write(self::META_ORDER_NUMBER, Config::clean($order_number));
         $this->write(self::META_ENVIRONMENT, self::normalise_environment($environment));
-        $this->write(self::META_CLIENT_ID, $this->clean($client_id));
+        $this->write(self::META_CLIENT_ID, Config::clean($client_id));
 
         return $this;
     }
@@ -199,7 +199,7 @@ final class Order_State
      */
     public function record_md_order(string $md_order): self
     {
-        $this->write(self::META_MD_ORDER, $this->clean($md_order));
+        $this->write(self::META_MD_ORDER, Config::clean($md_order));
 
         return $this;
     }
@@ -216,7 +216,7 @@ final class Order_State
     /** Records the BPC clientId a stored credential will be created against. */
     public function record_client_id(string $client_id): self
     {
-        $this->write(self::META_CLIENT_ID, $this->clean($client_id));
+        $this->write(self::META_CLIENT_ID, Config::clean($client_id));
 
         return $this;
     }
@@ -231,9 +231,9 @@ final class Order_State
      */
     public function record_card(array $card): self
     {
-        $this->write(self::META_BINDING_ID, $this->clean($card['binding_id'] ?? ''));
-        $this->write(self::META_CLIENT_ID, $this->clean($card['client_id'] ?? ''));
-        $this->write(self::META_MASKED_PAN, Config::mask_pan($this->clean($card['masked_pan'] ?? '')));
+        $this->write(self::META_BINDING_ID, Config::clean($card['binding_id'] ?? ''));
+        $this->write(self::META_CLIENT_ID, Config::clean($card['client_id'] ?? ''));
+        $this->write(self::META_MASKED_PAN, Config::mask_pan(Config::clean($card['masked_pan'] ?? '')));
         $this->write(self::META_CARD_EXPIRY, self::normalise_expiry($card['expiry'] ?? ''));
         $this->write(self::META_ENVIRONMENT, self::normalise_environment($card['environment'] ?? ''));
 
@@ -365,7 +365,7 @@ final class Order_State
             return '';
         }
 
-        return $this->clean($this->order->get_meta($key));
+        return Config::clean($this->order->get_meta($key));
     }
 
     /**
@@ -385,23 +385,5 @@ final class Order_State
 
         $this->order->update_meta_data($key, $value);
         $this->changed = true;
-    }
-
-    /**
-     * @param mixed $value
-     */
-    private function clean($value): string
-    {
-        if (is_array($value) || is_object($value)) {
-            return '';
-        }
-
-        $value = trim((string) $value);
-
-        if (\function_exists('sanitize_text_field')) {
-            return sanitize_text_field($value);
-        }
-
-        return trim(strip_tags($value));
     }
 }

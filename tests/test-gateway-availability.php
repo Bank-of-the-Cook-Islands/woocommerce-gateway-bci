@@ -229,5 +229,25 @@ namespace BCI\Woo {
         throw new \RuntimeException('process_payment() must not block an NZD order in live mode.');
     }
 
+    // Checkout registers and pays in the environment the store is pointed at right now, so the
+    // gateway must never name an environment of its own when asking for the payment currency:
+    // a live checkout collects NZD even with a sandbox currency configured, and a sandbox
+    // checkout collects the sandbox currency.
+    $bci_test_options = [Config::OPTION_KEY => ['test_mode' => 'no', 'sandbox_currency' => 'EUR']];
+    $live_numeric = gateway()->currency_to_numeric('NZD');
+    if ($live_numeric !== '554') {
+        throw new \RuntimeException(
+            'A live checkout must be charged in NZD (554), got ' . $live_numeric
+        );
+    }
+
+    $bci_test_options = [Config::OPTION_KEY => ['test_mode' => 'yes']];
+    $sandbox_numeric = gateway()->currency_to_numeric('NZD');
+    if ($sandbox_numeric !== '978') {
+        throw new \RuntimeException(
+            'A sandbox checkout must be charged in the sandbox currency EUR (978), got ' . $sandbox_numeric
+        );
+    }
+
     echo "Gateway availability tests passed.\n";
 }

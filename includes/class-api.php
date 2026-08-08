@@ -85,9 +85,20 @@ final class Api
         return self::CURRENCY_MAP['NZD'];
     }
 
-    public static function payment_currency_code(?string $currency): string
+    /**
+     * The currency a payment addressed to $environment must be charged in.
+     *
+     * Each environment collects in its own currency, so a charge sent to a host
+     * has to be priced for that host. Callers that register and pay in the
+     * environment the plugin is configured for right now — checkout — omit the
+     * argument; callers that address an environment of their own — a renewal
+     * charged wherever its binding was created — pass it.
+     */
+    public static function payment_currency_code(?string $currency, ?string $environment = null): string
     {
-        if (self::current_environment() === 'sandbox') {
+        $environment = (string) $environment !== '' ? (string) $environment : self::current_environment();
+
+        if ($environment === 'sandbox') {
             $sandbox_currency = strtoupper((string) self::get_setting('sandbox_currency', ''));
 
             if ($sandbox_currency === '' && self::get_setting('sandbox_force_eur_currency', 'no') === 'yes') {
@@ -125,9 +136,9 @@ final class Api
             && trim((string) self::get_setting($prefix . '_api_password', '')) !== '';
     }
 
-    public static function payment_currency_to_numeric(?string $currency): string
+    public static function payment_currency_to_numeric(?string $currency, ?string $environment = null): string
     {
-        return self::currency_to_numeric(self::payment_currency_code($currency));
+        return self::currency_to_numeric(self::payment_currency_code($currency, $environment));
     }
 
     public static function callback_tokens(): array

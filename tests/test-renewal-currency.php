@@ -1,15 +1,15 @@
 <?php
 
 /**
- * A subscription is renewed wherever it was created, not wherever the plugin
- * happens to be pointed today.
+ * A renewal is charged in the currency of the environment it is sent to.
  *
- * Renewals used to walk a five step ladder to answer this, ending in a hard
- * coded 'live', and one of its steps called a method the gateway does not have.
- * The environment is now a property of the order state: the subscription
- * remembers where its binding was created and the renewal order inherits it, so
- * switching the store out of test mode cannot send a sandbox binding to the
- * live host — the mismatch epic #20 describes.
+ * The environment half of this was fixed first: a renewal goes to the host its
+ * binding was created on. The currency followed the global test_mode setting for
+ * a while longer, so a sandbox binding renewing after test mode was switched off
+ * reached dev.bpcbt.com priced in NZD, which the sandbox merchant cannot
+ * collect — and a live subscription renewing while someone had test mode on sent
+ * the sandbox currency to the live host. Currency and host now come from the one
+ * environment, whatever the setting says today.
  */
 
 declare(strict_types=1);
@@ -50,26 +50,22 @@ namespace {
         public array $notes = [];
         public string $transaction_id = '';
 
-        public function __construct(array $persisted = [])
-        {
-            $this->persisted = $persisted;
-        }
-
         public function get_id(): int
         {
-            return 88;
+            return 91;
         }
 
         public function get_order_number(): string
         {
-            return '88';
+            return '91';
         }
 
         public function get_customer_id(): int
         {
-            return 5;
+            return 7;
         }
 
+        /** WooCommerce prices the renewal order in the store's own currency. */
         public function get_currency(): string
         {
             return 'NZD';
@@ -141,7 +137,6 @@ namespace {
         }
     }
 
-    /** The subscription the renewal belongs to, with the credential it stored. */
     class WC_Subscription_Stub
     {
         public array $meta = [];
@@ -163,7 +158,7 @@ namespace {
 
         public function get_id(): int
         {
-            return 900;
+            return 910;
         }
     }
 }
@@ -179,8 +174,8 @@ namespace BCI\Woo {
         /** @var array Every recurrentPayment.do request, as [params, environment]. */
         public array $renewal_requests = [];
 
-        /** @var array Every getOrderStatusExtended request, as [mdOrder, environment]. */
-        public array $status_requests = [];
+        /** @var array Every environment payment_currency_to_numeric() was asked about. */
+        public static array $currency_questions = [];
 
         public function recurrent_payment(array $params, string $environment)
         {
@@ -188,24 +183,21 @@ namespace BCI\Woo {
 
             return [
                 'errorCode' => '0',
-                'orderId' => 'md-renewal-88',
+                'orderId' => 'md-renewal-91',
                 'orderStatus' => ['errorCode' => '0', 'orderStatus' => Config::STATUS_REGISTERED],
             ];
         }
 
         public function get_order_status(string $md_order, string $environment)
         {
-            $this->status_requests[] = [$md_order, $environment];
-
             return [
                 'errorCode' => '0',
                 'orderStatus' => Config::STATUS_CAPTURED,
                 'actionCode' => 0,
-                'authRefNum' => 'auth-renewal-88',
+                'authRefNum' => 'auth-renewal-91',
             ];
         }
 
-        /** How the plugin is configured right now, which is not how it was configured then. */
         public static function current_environment(): string
         {
             global $bci_test_current_environment;
@@ -223,14 +215,19 @@ namespace BCI\Woo {
             return $default;
         }
 
-        /** Which currency that environment charges in is test-renewal-currency.php. */
+        /**
+         * Mirrors the real method: the sandbox merchant collects in EUR, the live
+         * merchant in NZD, and the environment argument wins over the setting.
+         */
         public static function payment_currency_to_numeric(?string $currency, ?string $environment = null): string
         {
-            return '554';
+            $environment = (string) $environment !== '' ? (string) $environment : self::current_environment();
+            self::$currency_questions[] = $environment;
+
+            return $environment === 'sandbox' ? '978' : '554';
         }
     }
 
-    /** Stands in for the WooCommerce Subscriptions lookup. */
     final class Subscriptions
     {
         /** @var object|null */
@@ -241,6 +238,21 @@ namespace BCI\Woo {
         public function subscription_for_renewal_order($order)
         {
             return $this->subscription;
+        }
+    }
+
+    /**
+     * The gateway Renewals is constructed with in production. Its own currency
+     * helper only knows the environment the store is configured for right now,
+     * which is exactly what a renewal must not be priced by.
+     */
+    final class Gateway_Stub
+    {
+        public string $id = 'bci_takuecom';
+
+        public function currency_to_numeric(?string $currency): string
+        {
+            return Api::current_environment() === 'sandbox' ? '978' : '554';
         }
     }
 
@@ -265,68 +277,61 @@ namespace BCI\Woo {
     /**
      * Charges a renewal for $subscription while the plugin is set to $current.
      *
-     * @return array{0: \WC_Order, 1: Api}
+     * @return array{0: array, 1: string} The charge params and the environment sent to.
      */
     function renew($subscription, string $current): array
     {
         global $bci_test_current_environment;
         $bci_test_current_environment = $current;
-
-        // WooCommerce Subscriptions creates the renewal order fresh, so it carries
-        // no BCI state of its own until this charge records some.
-        $renewal_order = new \WC_Order();
+        Api::$currency_questions = [];
 
         $api           = new Api();
         $subscriptions = new Subscriptions();
         $subscriptions->subscription = $subscription;
 
-        $renewals = new Renewals(null, $api, new Status_Resolver($api), $subscriptions, new Tokens(Config::GATEWAY_ID));
-        $renewals->process_subscription_payment('19.95', $renewal_order);
+        $renewals = new Renewals(
+            new Gateway_Stub(),
+            $api,
+            new Status_Resolver($api),
+            $subscriptions,
+            new Tokens(Config::GATEWAY_ID)
+        );
+        $renewals->process_subscription_payment('19.95', new \WC_Order());
 
-        return [$renewal_order, $api];
+        assert_same(1, count($api->renewal_requests), 'the renewal is charged once');
+
+        return $api->renewal_requests[0];
     }
 
-    // The subscription was taken out while the store was in test mode, and the
-    // binding it holds only exists on the sandbox host.
+    // Taken out while the store was in test mode; test mode has since been
+    // switched off. The charge goes to sandbox, so it is priced for sandbox.
     $sandbox_subscription = new \WC_Subscription_Stub([
         '_bci_woo_environment' => 'sandbox',
         '_bci_woo_binding_id' => 'binding-sandbox-1',
-        '_bci_woo_client_id' => 'wc_customer_5',
     ]);
 
-    // Test mode has since been switched off. The renewal must still go to sandbox.
-    [$renewal_order, $api] = renew($sandbox_subscription, 'live');
+    [$params, $environment] = renew($sandbox_subscription, 'live');
+    assert_same('sandbox', $environment, 'the charge goes to the environment the binding was created on');
+    assert_same('978', $params['currency'], 'a sandbox renewal is priced in the sandbox currency with test mode off');
+    assert_same(['sandbox'], Api::$currency_questions, 'the currency is asked about the environment being charged, not the setting');
 
-    assert_same(1, count($api->renewal_requests), 'the renewal is charged once');
-    [$params, $charge_environment] = $api->renewal_requests[0];
-    assert_same('sandbox', $charge_environment, 'the charge goes to the environment the binding was created on');
-    assert_same('binding-sandbox-1', $params['bindingId'], 'the charge uses the stored credential');
-
-    assert_same(1, count($api->status_requests), 'the renewal is read back once');
-    [$md_order, $status_environment] = $api->status_requests[0];
-    assert_same('md-renewal-88', $md_order, 'the renewal is read back by its own gateway reference');
-    assert_same('sandbox', $status_environment, 'the read back goes to the same environment as the charge');
-
-    // Having been charged there, the renewal order records it, so every later
-    // status check on this order resolves without consulting the subscription.
-    assert_same('sandbox', (string) ($renewal_order->persisted['_bci_woo_environment'] ?? ''), 'the renewal order records its environment');
-    assert_same('md-renewal-88', (string) ($renewal_order->persisted['_bci_woo_md_order'] ?? ''), 'the renewal order records its gateway reference');
-    assert_same('processing', $renewal_order->status, 'the renewal completes through the shared status table');
-
-    // The reverse case: a subscription created live keeps renewing live while the
-    // store is in test mode. The old ladder read the test_mode setting directly.
+    // The reverse, and the worse one: a live subscription renewing while someone
+    // has test mode on must not send the sandbox currency to the live host.
     $live_subscription = new \WC_Subscription_Stub([
         '_bci_woo_environment' => 'live',
         '_bci_woo_binding_id' => 'binding-live-1',
     ]);
 
-    [, $api] = renew($live_subscription, 'sandbox');
-    assert_same('live', $api->renewal_requests[0][1], 'a live subscription is not dragged into sandbox by test mode');
+    [$params, $environment] = renew($live_subscription, 'sandbox');
+    assert_same('live', $environment, 'a live subscription is not dragged into sandbox by test mode');
+    assert_same('554', $params['currency'], 'a live renewal is priced in the live currency with test mode on');
+    assert_same(['live'], Api::$currency_questions, 'the currency is asked about the environment being charged, not the setting');
 
-    // With nothing recorded anywhere there is nothing to inherit, so the plugin's
-    // current environment answers — rather than the ladder's hard coded 'live'.
-    [, $api] = renew(new \WC_Subscription_Stub(['_bci_woo_binding_id' => 'binding-unknown-1']), 'sandbox');
-    assert_same('sandbox', $api->renewal_requests[0][1], 'an unrecorded environment falls back to the current setting');
+    // With nothing recorded there is nothing to inherit: the charge goes to the
+    // current environment, and the currency goes with it.
+    [$params, $environment] = renew(new \WC_Subscription_Stub(['_bci_woo_binding_id' => 'binding-unknown-1']), 'sandbox');
+    assert_same('sandbox', $environment, 'an unrecorded environment falls back to the current setting');
+    assert_same('978', $params['currency'], 'the currency follows that fallback rather than diverging from it');
 
-    echo "Renewal environment tests passed.\n";
+    echo "Renewal currency tests passed.\n";
 }

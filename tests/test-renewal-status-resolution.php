@@ -187,7 +187,7 @@ namespace BCI\Woo {
             return $default;
         }
 
-        public static function payment_currency_to_numeric(?string $currency): string
+        public static function payment_currency_to_numeric(?string $currency, ?string $environment = null): string
         {
             return '554';
         }

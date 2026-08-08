@@ -223,6 +223,8 @@ If an order currency other than NZD still reaches the request builder, live mode
 
 When Test mode is enabled, payment requests use the `sandbox_currency` setting regardless of the WooCommerce order currency. It defaults to EUR (`978`) because the BPC development environment defaults new merchants to EUR. Operators may select NZD (`554`) only after configuring the development merchant to use the same currency in the BPC Dev Merchant Portal. The legacy `sandbox_force_eur_currency=yes` setting is still interpreted as EUR when `sandbox_currency` has not yet been saved.
 
+The currency belongs to the environment a request is addressed to rather than to the setting. `Api::payment_currency_code()` and `Api::payment_currency_to_numeric()` therefore take an optional environment, defaulting to `Api::current_environment()`: checkout registers and pays wherever the store is pointed right now, so it omits the argument. `Renewals` passes the environment it resolved from the order state, the same one it sends the charge to, so a subscription created in sandbox is still charged the sandbox currency against the sandbox host after Test mode is switched off, and a live subscription is not charged the sandbox currency while Test mode is on.
+
 ## One-Off Payment Flow
 
 1. Customer places a WooCommerce order using `bci_takuecom`.

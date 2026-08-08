@@ -113,7 +113,7 @@ final class Renewals {
 			'language'    => 'en',
 			'bindingId'   => $binding_id,
 			'amount'      => $this->amount_to_minor_units($amount_to_charge),
-			'currency'    => $this->currency_to_numeric($renewal_order->get_currency()),
+			'currency'    => $this->currency_to_numeric($renewal_order->get_currency(), $environment),
 			'description' => $this->safe_description($renewal_order),
 		];
 
@@ -309,7 +309,19 @@ final class Renewals {
 		return (int) round(((float) $amount) * 100);
 	}
 
-	private function currency_to_numeric(string $currency): string {
+	/**
+	 * The numeric currency for a charge addressed to $environment.
+	 *
+	 * Api is asked first and asked about that environment: the currency has to
+	 * match the host the charge is sent to, and the gateway's own helper answers
+	 * for the environment the store is configured for today, which for a renewal
+	 * is not necessarily the environment its binding lives in.
+	 */
+	private function currency_to_numeric(string $currency, string $environment): string {
+		if (\class_exists(Api::class) && \is_callable([Api::class, 'payment_currency_to_numeric'])) {
+			return Api::payment_currency_to_numeric($currency, $environment);
+		}
+
 		if (is_object($this->gateway) && is_callable([$this->gateway, 'currency_to_numeric'])) {
 			try {
 				$value = $this->gateway->currency_to_numeric($currency);
@@ -325,10 +337,6 @@ final class Renewals {
 			'NZD' => '554',
 			'EUR' => '978',
 		];
-
-		if (\class_exists(Api::class) && \is_callable([Api::class, 'payment_currency_to_numeric'])) {
-			return Api::payment_currency_to_numeric($currency);
-		}
 
 		$currency = strtoupper($currency);
 		if ($currency === 'EUR') {

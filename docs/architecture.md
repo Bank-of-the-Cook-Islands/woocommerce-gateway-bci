@@ -115,7 +115,7 @@ woocommerce-gateway-bci/
 │   ├── class-tokens.php
 │   └── blocks/class-blocks-support.php
 ├── scripts/
-│   ├── build-release.ps1
+│   ├── build-release.php
 │   └── build-docs.php
 ├── tests/
 │   └── test-*.php (standalone, self-contained; one file per contract)

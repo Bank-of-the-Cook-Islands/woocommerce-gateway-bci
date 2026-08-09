@@ -90,7 +90,7 @@ Tests are standalone self-contained PHP scripts in `tests/` — no PHPUnit, no d
 for t in tests/test-*.php; do php "$t"; done
 ```
 
-CI runs on every pull request: `php -l` over every file and the full test suite in a PHP 8.3 container, plus a full-history gitleaks secret scan with a card-PAN rule (`.gitleaks.toml`). Release packaging is `scripts/build-release.ps1`, which includes the merchant setup guide the admin settings link to.
+CI runs on every pull request: `php -l` over every file and the full test suite in a PHP 8.3 container, plus a full-history gitleaks secret scan with a card-PAN rule (`.gitleaks.toml`). Release packaging is `php scripts/build-release.php <ref>`, which archives the committed ref — not the working tree — and includes the merchant setup guide the admin settings link to. The ZIP lands in `dist/` unless `--output=<directory>` says otherwise.
 
 Before tagging a release, run `php scripts/build-docs.php` so the Word and PDF handover copies match the markdown guide and carry the new version on their cover. The exports are generated, so edit the markdown rather than the binaries.
 

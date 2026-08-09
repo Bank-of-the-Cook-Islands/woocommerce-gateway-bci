@@ -115,12 +115,15 @@ woocommerce-gateway-bci/
 │   ├── class-tokens.php
 │   └── blocks/class-blocks-support.php
 ├── scripts/
-│   └── build-release.ps1
+│   ├── build-release.ps1
+│   └── build-docs.php
 ├── tests/
 │   └── test-*.php (standalone, self-contained; one file per contract)
 └── docs/
     ├── architecture.md
     ├── merchant-setup-guide.md
+    ├── Merchant Setup Guide.docx (generated from the markdown)
+    ├── Merchant Setup Guide.pdf (generated from the markdown)
     ├── images/setup/ (setup guide screenshots)
     ├── release-test-report-v1.0.0.md
     ├── requirements-v1.0.0.md

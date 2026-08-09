@@ -38,7 +38,7 @@ Live payment requests are sent as NZD (`554`), and the gateway hides itself at c
 10. Place a sandbox WooCommerce order and confirm the order status updates automatically.
 11. Repeat the credential and callback setup for live before disabling Test mode.
 
-See `docs/merchant-setup-guide.md` for a merchant-friendly setup walkthrough.
+See `docs/merchant-setup-guide.md` for a merchant-friendly setup walkthrough. `docs/Merchant Setup Guide.docx` and `.pdf` are the handover copies of that guide, generated from it by `scripts/build-docs.php`.
 
 ## Order Status Handling
 
@@ -91,6 +91,8 @@ for t in tests/test-*.php; do php "$t"; done
 ```
 
 CI runs on every pull request: `php -l` over every file and the full test suite in a PHP 8.3 container, plus a full-history gitleaks secret scan with a card-PAN rule (`.gitleaks.toml`). Release packaging is `scripts/build-release.ps1`, which includes the merchant setup guide the admin settings link to.
+
+Before tagging a release, run `php scripts/build-docs.php` so the Word and PDF handover copies match the markdown guide and carry the new version on their cover. The exports are generated, so edit the markdown rather than the binaries.
 
 ## Licence
 

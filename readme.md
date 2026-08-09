@@ -90,7 +90,15 @@ Tests are standalone self-contained PHP scripts in `tests/` — no PHPUnit, no d
 for t in tests/test-*.php; do php "$t"; done
 ```
 
-CI runs on every pull request: `php -l` over every file and the full test suite in a PHP 8.3 container, plus a full-history gitleaks secret scan with a card-PAN rule (`.gitleaks.toml`). Release packaging is `php scripts/build-release.php <ref>`, which archives the committed ref — not the working tree — and includes the merchant setup guide the admin settings link to. The ZIP lands in `dist/` unless `--output=<directory>` says otherwise.
+The standalone tests stub WordPress, so they cannot catch anything that only breaks when WordPress actually loads the plugin. `tests/wordpress/run.sh` covers that: it boots WordPress and WooCommerce in throwaway containers, installs the plugin from the same file list a release ZIP ships, and asserts the gateway registers, its settings round-trip, the callback route answers over HTTP, and nothing lands in the debug log. It needs only docker:
+
+```bash
+tests/wordpress/run.sh
+```
+
+Set `BOOT_TEST_PORT=8080` to leave the site published for a look around, or `BOOT_TEST_SABOTAGE=1` to break the plugin on purpose and confirm the harness still fails.
+
+CI runs on every pull request: `php -l` over every file and the full test suite in a PHP 8.3 container, the WordPress boot test, plus a full-history gitleaks secret scan with a card-PAN rule (`.gitleaks.toml`). Release packaging is `php scripts/build-release.php <ref>`, which archives the committed ref — not the working tree — and includes the merchant setup guide the admin settings link to. The ZIP lands in `dist/` unless `--output=<directory>` says otherwise.
 
 Before tagging a release, run `php scripts/build-docs.php` so the Word and PDF handover copies match the markdown guide and carry the new version on their cover. The exports are generated, so edit the markdown rather than the binaries.
 

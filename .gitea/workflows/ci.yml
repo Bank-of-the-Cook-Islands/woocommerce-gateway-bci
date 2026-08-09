@@ -47,3 +47,19 @@ jobs:
               echo "== $t"
               php "$t"
             done'
+
+  # The standalone suite above stubs WordPress, so it cannot fail on anything
+  # that only breaks once WordPress loads the plugin: an autoload path, a
+  # class rename, a hook signature, a REST route that never registers. This job
+  # boots the real thing. It is a separate job so a boot failure is legible on
+  # its own rather than buried in the PHP job's log.
+  wordpress:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      # run.sh talks to the docker daemon directly (build, run, exec) and never
+      # bind-mounts the workspace, so it works from inside the runner container.
+      - name: WordPress boot test
+        run: bash tests/wordpress/run.sh

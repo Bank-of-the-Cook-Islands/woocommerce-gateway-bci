@@ -118,7 +118,8 @@ woocommerce-gateway-bci/
 │   ├── build-release.php
 │   └── build-docs.php
 ├── tests/
-│   └── test-*.php (standalone, self-contained; one file per contract)
+│   ├── test-*.php (standalone, self-contained; one file per contract)
+│   └── wordpress/ (boot test: the plugin inside a real WordPress install)
 └── docs/
     ├── architecture.md
     ├── merchant-setup-guide.md

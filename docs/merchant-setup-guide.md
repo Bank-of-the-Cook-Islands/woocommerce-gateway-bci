@@ -126,6 +126,8 @@ If store staff find Processing unclear, choose Force Completed. If every paid or
 5. Return to the WooCommerce order.
 6. Confirm the order includes a BCI gateway reference and reaches the expected paid status.
 
+WooCommerce normally requires a State / County and a Postcode / ZIP at checkout. Cook Islands addresses have neither, so the plugin makes both optional for Cook Islands customers and labels the state field Island. Customers can leave them blank.
+
 If the order stays Pending:
 
 1. Click Check Pending Orders in the gateway settings.

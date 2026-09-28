@@ -45,6 +45,7 @@ final class Plugin
 
         add_filter('woocommerce_payment_gateways', [$this, 'add_gateway']);
 
+        Address::register();
         Callback::register();
         Scheduler::register();
 
@@ -138,6 +139,7 @@ final class Plugin
     private function require_optional_files(): void
     {
         $files = [
+            'includes/class-address.php',
             'includes/class-callback.php',
             'includes/class-scheduler.php',
             'includes/class-admin.php',

@@ -4,7 +4,7 @@ Tags: woocommerce, payment gateway, bci, takuecom, bpc
 Requires at least: 5.0
 Tested up to: 6.9.1
 Requires PHP: 7.4
-Stable tag: 1.0.2
+Stable tag: 1.1.1
 License: GPLv3
 License URI: https://opensource.org/licenses/GPL-3.0
 
@@ -78,6 +78,17 @@ No. Card data is entered on the BCI-hosted secure payment page. For subscription
 Open WooCommerce > Status > Logs and select the BCI_Woo_Plugin source.
 
 == Changelog ==
+
+= 1.1.1 =
+
+* Recover payments completed after WooCommerce has cancelled the unpaid order, and hold WooCommerce's automatic cancellation while a payment is still in progress at BCI.
+* Accept payment callbacks when the website adds its own query parameters (tracking, security or caching plugins) to the callback request.
+* Hide the payment method at checkout when live credentials are missing or the store currency cannot be charged, instead of failing when the customer pays.
+* Make State and Postcode optional for Cook Islands addresses at checkout, and label the state field Island.
+* Repeat callbacks from BCI no longer add duplicate order notes, and no longer move an order the merchant has completed back to Processing.
+* The customer's return and BCI's callback no longer process the same order at the same time.
+* Redact gateway request and response bodies in logs and mask stored card labels.
+* Subscriptions (experimental, disabled by default): request stored credentials correctly, only save cards when subscriptions are enabled, keep binding details, and charge renewals in the right environment's currency.
 
 = 1.0.2 =
 

@@ -36,7 +36,7 @@ Out of scope:
 - Google Pay or Apple Pay.
 - PCI scope expansion. Card entry remains on BCI/BPC-hosted pages.
 
-Since v1.0.0: v1.0.1 fixed Cook Islands billing registration, v1.0.2 added BPC API documentation and release packaging, and the unreleased work on `main` fixed five production defects, refactored the code, and added a test suite along with CI.
+Since v1.0.0: v1.0.1 fixed Cook Islands billing registration, v1.0.2 added BPC API documentation and release packaging, and v1.1.1 fixed several production defects, made resolution safe against repeat and concurrent gateway answers, relaxed Cook Islands address fields, refactored the code, and added a test suite along with CI.
 
 ## Package
 
@@ -56,7 +56,7 @@ Plugin header:
 
 ```text
 Plugin Name: TakuEcom - BCI Payments for WooCommerce
-Version: 1.0.2
+Version: 1.1.1
 Text Domain: bci-woo
 Requires Plugins: woocommerce
 WC requires at least: 4.0
@@ -147,7 +147,7 @@ woocommerce-gateway-bci/
 `Config` centralises the stable release constants:
 
 ```php
-VERSION = '1.0.2'
+VERSION = '1.1.1'
 TEXT_DOMAIN = 'bci-woo'
 GATEWAY_ID = 'bci_takuecom'
 OPTION_KEY = 'woocommerce_bci_takuecom_settings'

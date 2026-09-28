@@ -109,11 +109,22 @@ This plugin is licensed under the [GNU General Public Licence v3.0](https://open
 ---
 
 **Author:** Bank of the Cook Islands — [bci.co.ck](https://bci.co.ck) — cash@bci.co.ck
-**Version:** 1.0.2
+**Version:** 1.1.1
 
 ---
 
 ## Changelog
+
+### 1.1.1
+
+- Recover payments completed after WooCommerce has cancelled the unpaid order, and hold WooCommerce's automatic cancellation while a payment is still in progress at BCI.
+- Accept payment callbacks when the website adds its own query parameters (tracking, security or caching plugins) to the callback request.
+- Hide the payment method at checkout when live credentials are missing or the store currency cannot be charged, instead of failing when the customer pays.
+- Make State and Postcode optional for Cook Islands addresses at checkout, and label the state field Island.
+- Repeat callbacks from BCI no longer add duplicate order notes, and no longer move an order the merchant has completed back to Processing.
+- The customer's return and BCI's callback no longer process the same order at the same time.
+- Redact gateway request and response bodies in logs and mask stored card labels.
+- Subscriptions (experimental, disabled by default): request stored credentials correctly, only save cards when subscriptions are enabled, keep binding details, and charge renewals in the right environment's currency.
 
 ### 1.0.2
 

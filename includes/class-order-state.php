@@ -153,6 +153,19 @@ final class Order_State
     }
 
     /**
+     * Whether this exact gateway status and action code are already recorded
+     * against the order's current registration.
+     */
+    public function has_recorded_status(int $order_status, int $action_code): bool
+    {
+        $status = $this->read(self::META_LAST_STATUS);
+
+        return $status !== ''
+            && (int) $status === $order_status
+            && (int) $this->read(self::META_LAST_ACTION_CODE) === $action_code;
+    }
+
+    /**
      * The stored credential, in the shape the token helpers pass around.
      *
      * @return array{binding_id: string, client_id: string, masked_pan: string, expiry: string, environment: string}
@@ -186,6 +199,11 @@ final class Order_State
         $this->write(self::META_ORDER_NUMBER, Config::clean($order_number));
         $this->write(self::META_ENVIRONMENT, self::normalise_environment($environment));
         $this->write(self::META_CLIENT_ID, Config::clean($client_id));
+
+        // The last status belonged to the previous BPC order. Left in place, a
+        // retry declined with the same code would look like a repeat of it.
+        $this->forget(self::META_LAST_STATUS);
+        $this->forget(self::META_LAST_ACTION_CODE);
 
         return $this;
     }
@@ -366,6 +384,17 @@ final class Order_State
         }
 
         return Config::clean($this->order->get_meta($key));
+    }
+
+    /** Stages the removal of a key, if the order carries it. */
+    private function forget(string $key): void
+    {
+        if ($this->order === null || !method_exists($this->order, 'delete_meta_data') || $this->read($key) === '') {
+            return;
+        }
+
+        $this->order->delete_meta_data($key);
+        $this->changed = true;
     }
 
     /**

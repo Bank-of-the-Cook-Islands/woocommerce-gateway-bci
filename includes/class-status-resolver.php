@@ -133,7 +133,13 @@ final class Status_Resolver
             return;
         }
 
-        Order_State::for($order)->record_status($resolution->order_status, $resolution->action_code);
+        // BPC repeats itself: a callback per enabled event, retries, and the
+        // browser return racing all of them. Whether this exact gateway state
+        // was already recorded is what separates news from an echo, and it has
+        // to be read before record_status() overwrites it.
+        $state = Order_State::for($order);
+        $already_recorded = $state->has_recorded_status($resolution->order_status, $resolution->action_code);
+        $state->record_status($resolution->order_status, $resolution->action_code);
 
         switch ($resolution->outcome) {
             case Resolution::COMPLETED:
@@ -150,7 +156,7 @@ final class Status_Resolver
                 break;
 
             case Resolution::FAILED:
-                $this->mark_failed($order, $resolution->status, $context);
+                $this->mark_failed($order, $resolution->status, $context, $already_recorded);
                 break;
 
             case Resolution::PENDING:
@@ -223,11 +229,24 @@ final class Status_Resolver
             $transaction_id = Order_State::for($order)->md_order();
         }
 
-        if (!$order->is_paid()) {
-            $order->payment_complete($transaction_id);
-        } elseif ($transaction_id !== '') {
-            $order->set_transaction_id($transaction_id);
+        // A paid order hearing it was paid again is an echo, not news. Only the
+        // reference is refreshed: no note, and no forced status either, because
+        // re-applying "Force Processing" here would drag an order the merchant
+        // has since completed back to processing.
+        if ($order->is_paid()) {
+            if ($transaction_id !== '') {
+                $order->set_transaction_id($transaction_id);
+            }
+            $order->save();
+
+            Log::info('BCI payment confirmed again for an order already marked paid.', [
+                'order_id' => $order->get_id(),
+                'context' => $context,
+            ]);
+            return;
         }
+
+        $order->payment_complete($transaction_id);
 
         $note = sprintf(
             /* translators: %s is the context, for example gateway callback. */
@@ -252,7 +271,11 @@ final class Status_Resolver
         ]);
     }
 
-    private function mark_failed(\WC_Order $order, array $status, string $context): void
+    /**
+     * @param bool $already_recorded Whether this exact gateway status and action
+     *                               code were recorded before this resolution.
+     */
+    private function mark_failed(\WC_Order $order, array $status, string $context, bool $already_recorded = false): void
     {
         $description = (string) ($status['actionCodeDescription'] ?? __('Payment declined or abandoned.', Config::TEXT_DOMAIN));
         $action_code = isset($status['actionCode']) ? (string) $status['actionCode'] : '';
@@ -267,7 +290,9 @@ final class Status_Resolver
 
         if (!$order->has_status('failed')) {
             $order->update_status('failed', $note);
-        } else {
+        } elseif (!$already_recorded) {
+            // Still failed, but from a decline not seen before on this order,
+            // such as a retry from the order-pay page: that is worth a note.
             $order->add_order_note($note);
         }
 
@@ -289,11 +314,8 @@ final class Status_Resolver
 
         if (!$order->has_status('refunded')) {
             $order->update_status('refunded', $note);
-        } else {
-            $order->add_order_note($note);
+            $order->save();
         }
-
-        $order->save();
     }
 
     private function mark_cancelled_or_failed(\WC_Order $order, string $context): void
@@ -302,6 +324,12 @@ final class Status_Resolver
             __('BCI reports this payment was reversed or cancelled (%s).', Config::TEXT_DOMAIN),
             $context
         );
+
+        // Already settled by an earlier reversal. A cancelled order no longer
+        // counts as paid, so without this a repeat would move it on to failed.
+        if ($order->has_status(['cancelled', 'failed'])) {
+            return;
+        }
 
         if ($order->is_paid()) {
             $order->update_status('cancelled', $note);

@@ -414,7 +414,15 @@ final class Gateway extends \WC_Payment_Gateway
         // an order a callback has already settled is left alone rather than
         // re-read and re-noted on every refresh of this URL.
         if (Payment_Resolution::is_resolvable($order)) {
-            Payment_Resolution::resolve($order, Payment_Resolution::BROWSER_RETURN);
+            try {
+                Payment_Resolution::resolve($order, Payment_Resolution::BROWSER_RETURN);
+            } catch (\Throwable $exception) {
+                // The customer is still sent on from whatever the order now says.
+                Log::error('BCI browser return status resolution failed.', [
+                    'order_id' => $order_id,
+                    'error' => $exception->getMessage(),
+                ]);
+            }
             $order = wc_get_order($order_id);
         }
 

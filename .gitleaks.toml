@@ -20,6 +20,8 @@ tags = ["pii", "card"]
     '''5538070000000000''',          # sanctioned doc/example placeholder
     '''5555555555554444''',          # Mastercard test PAN
     '''4111111111111111''',          # Visa test PAN
+    '''5168494895055780''',          # BPC sandbox test card (3-D Secure decline)
+    '''5555555555555599''',          # BPC sandbox test card (3-D Secure challenge)
     '''[0-9]{6}\*{4,}[0-9]{2,4}''',  # masked PANs (e.g. 553807******1234)
   ]
 

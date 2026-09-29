@@ -1,0 +1,5 @@
+# Headless Chromium for tests/sandbox/checkout.py. The upstream image ships the
+# browsers but not the Python package, so it is installed here at the matching
+# version.
+FROM mcr.microsoft.com/playwright/python:v1.49.0-noble
+RUN pip install --break-system-packages playwright==1.49.0
